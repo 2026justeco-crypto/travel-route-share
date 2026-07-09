@@ -1,36 +1,43 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Travel Route Share（仮）
 
-## Getting Started
+「旅行全体を共有するSNS」— 写真1枚ではなく、旅行のルート・順番・体験をひとつのストーリーとして共有するWebサービス。
 
-First, run the development server:
+## デモ（GitHub Pages）
 
-```bash
+https://2026justeco-crypto.github.io/travel-route-share/
+
+## ローカルでの起動方法（MVP・デモモード）
+
+```
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+→ http://localhost:3000 を開く。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- **デモモード**：アカウント不要。データはブラウザ内（localStorage / IndexedDB）にのみ保存される
+- 初回起動時に「デモユーザー」の投稿5件が自動生成される（他ユーザー表示・フィルターの動作確認用）
+- β版で Supabase（Auth / Database / Storage）に差し替え予定（`docs/phases.md` 参照）
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## MVPでできること
 
-## Learn More
+- 日本地図（Leaflet + OpenStreetMap）にピン表示・ポップアップで写真/タイトル/コメント/投稿者
+- 写真投稿：EXIFのGPSから自動でピン位置取得。GPSが無い写真は地図クリックで位置指定
+- 旅行ルート作成：スポットを順番に登録（並べ替え・写真・メモ）、地図に番号ピン＋ルート線
+- 予定→実績：旅行後にスポットへ写真を追加し「旅行記」に更新
+- フィルター：自分/他ユーザー・地域（8区分）・お気に入り・**直近のみ表示（7/30/90日・選択式）**
+- 検索：地名・都道府県・タイトル・投稿者
+- タイムライン：新着旅行・新着投稿のカード表示
 
-To learn more about Next.js, take a look at the following resources:
+## プライバシー設計（MVP時点）
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- 写真は保存時に縮小・再エンコードするため、**GPS等のEXIFは保存データに残らない**（ピン位置のみ別途保存）
+- デモモードは外部送信なし（全データがローカル）
+- 公開サービス化する際は `docs/phases.md` の「公開前に必須の対策」を必ず実施すること
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## 技術構成
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Next.js (App Router) / React / TypeScript / Tailwind CSS
+- Leaflet + react-leaflet + OpenStreetMap
+- exifr（EXIF GPS抽出）
+- データ層：`src/lib/store.ts`（デモ実装。β版でSupabase実装に差し替えられるよう関数を分離）
