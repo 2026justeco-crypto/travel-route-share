@@ -5,7 +5,7 @@ import Header from "@/components/Header";
 export const metadata: Metadata = {
   title: "Travel Route Share - 旅行全体を共有するSNS",
   description:
-    "写真1枚ではなく、旅行全体（ルート・順番・体験）を共有できる旅行SNS。地図に写真をピンして、旅行ルートを計画から旅行記まで一つのストーリーに。",
+    "写真1枚ではなく、旅行全体（ルート・順番・体験）を共有できる旅行SNS。地図に写真をピンして、旅行ルートを計画から思い出まで一つのストーリーに。",
 };
 
 export default function RootLayout({

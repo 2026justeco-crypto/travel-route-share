@@ -1,6 +1,7 @@
 'use client';
 
-import { MapContainer, TileLayer, Marker, Popup, Polyline, useMapEvents } from 'react-leaflet';
+import { useEffect } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMapEvents, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -32,14 +33,26 @@ interface Props {
   zoom?: number;
   height?: string;
   onToggleFavorite?: (postId: string) => void;
+  fitRoute?: boolean; // ルート全体が収まるよう表示範囲を自動調整（閲覧ページ用）
 }
 
-function circleIcon(color: string): L.DivIcon {
+// 投稿者ごとに安定した色を名前から決める（アカウント機構ができるまでの簡易アバター）
+function userColor(name: string): string {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
+  return `hsl(${h}, 65%, 45%)`;
+}
+
+// 投稿者アイコンのピン：名前の頭文字＋固有色。自分の投稿は青いリングで区別
+function avatarIcon(userName: string, isMine: boolean): L.DivIcon {
+  const initial = Array.from(userName.trim())[0] ?? '?';
+  const bg = isMine ? '#2563eb' : userColor(userName);
+  const ring = isMine ? '#93c5fd' : '#ffffff';
   return L.divIcon({
     className: '',
-    html: `<div style="width:18px;height:18px;border-radius:50%;background:${color};border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.4)"></div>`,
-    iconSize: [18, 18],
-    iconAnchor: [9, 9],
+    html: `<div style="width:30px;height:30px;border-radius:50%;background:${bg};color:#fff;border:3px solid ${ring};box-shadow:0 1px 5px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:bold;font-family:sans-serif">${initial}</div>`,
+    iconSize: [30, 30],
+    iconAnchor: [15, 15],
   });
 }
 
@@ -59,6 +72,22 @@ const pickedIcon = L.divIcon({
   iconAnchor: [10, 10],
 });
 
+function FitRoute({ route }: { route: RoutePoint[] }) {
+  const map = useMap();
+  useEffect(() => {
+    if (route.length === 0) return;
+    if (route.length === 1) {
+      map.setView([route[0].lat, route[0].lng], 13);
+      return;
+    }
+    map.fitBounds(
+      L.latLngBounds(route.map((r) => [r.lat, r.lng] as [number, number])),
+      { padding: [40, 40], maxZoom: 14 },
+    );
+  }, [map, route]);
+  return null;
+}
+
 function ClickPicker({ onPick }: { onPick: (lat: number, lng: number) => void }) {
   useMapEvents({
     click(e) {
@@ -77,6 +106,7 @@ export default function JapanMap({
   zoom = 5,
   height = '480px',
   onToggleFavorite,
+  fitRoute = false,
 }: Props) {
   const routePoints = route.filter(
     (r) => r.lat !== null && r.lng !== null,
@@ -90,12 +120,13 @@ export default function JapanMap({
           url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         {onPick && <ClickPicker onPick={onPick} />}
+        {fitRoute && <FitRoute route={routePoints} />}
 
         {pins.map((p) => (
           <Marker
             key={p.id}
             position={[p.lat, p.lng]}
-            icon={circleIcon(p.isMine ? '#2563eb' : '#059669')}
+            icon={avatarIcon(p.userName ?? '?', !!p.isMine)}
           >
             <Popup maxWidth={260}>
               <div className="w-56">

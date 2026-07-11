@@ -120,7 +120,7 @@ export default function Home() {
       <section>
         <JapanMap pins={pins} onToggleFavorite={onToggleFavorite} height="480px" />
         <p className="mt-1.5 text-xs text-gray-400">
-          ● 青＝自分の投稿 ／ ● 緑＝他ユーザー。ピンをクリックすると写真と詳細が見られます。
+          ピンは投稿者のアイコン（名前の頭文字）。青いピンが自分の投稿です。クリックすると写真と詳細が見られます。
         </p>
       </section>
 
@@ -162,7 +162,7 @@ export default function Home() {
                             : 'bg-emerald-50 text-emerald-600'
                         }`}
                       >
-                        {t.status === 'plan' ? '予定' : '旅行記'}
+                        {t.status === 'plan' ? '🗓 これから行く' : '📖 思い出'}
                       </span>
                       <span className="text-xs text-gray-400">
                         {t.startDate}

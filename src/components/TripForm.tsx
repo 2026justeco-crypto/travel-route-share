@@ -139,15 +139,27 @@ export default function TripForm({ initial }: Props) {
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">状態</label>
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value as 'plan' | 'done')}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
-              >
-                <option value="plan">予定（旅行前）</option>
-                <option value="done">旅行記（旅行後）</option>
-              </select>
+              <label className="mb-1 block text-sm font-semibold text-gray-700">この旅行は？</label>
+              <div className="flex rounded-lg border border-gray-200 bg-gray-50 p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setStatus('plan')}
+                  className={`flex-1 rounded-md px-2 py-1.5 text-xs font-semibold ${
+                    status === 'plan' ? 'bg-amber-500 text-white shadow' : 'text-gray-500 hover:bg-gray-100'
+                  }`}
+                >
+                  🗓 これから行く
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStatus('done')}
+                  className={`flex-1 rounded-md px-2 py-1.5 text-xs font-semibold ${
+                    status === 'done' ? 'bg-emerald-500 text-white shadow' : 'text-gray-500 hover:bg-gray-100'
+                  }`}
+                >
+                  📖 行ってきた
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -183,23 +195,23 @@ export default function TripForm({ initial }: Props) {
                 className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm outline-none focus:border-blue-400"
               />
               <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                <label className="cursor-pointer rounded-lg border border-blue-300 px-2.5 py-1 font-semibold text-blue-600 hover:bg-blue-50">
+                  📷 写真を追加（位置も自動設定）
+                  <input type="file" accept="image/*" className="hidden" onChange={(e) => onSpotPhoto(s.id, e)} />
+                </label>
                 <button
                   onClick={() => setPickTarget(pickTarget === s.id ? null : s.id)}
                   className={`rounded-lg px-2.5 py-1 font-semibold ${
                     pickTarget === s.id
                       ? 'bg-blue-600 text-white'
-                      : 'border border-blue-300 text-blue-600 hover:bg-blue-50'
+                      : 'border border-gray-300 text-gray-600 hover:bg-gray-50'
                   }`}
                 >
-                  {pickTarget === s.id ? '地図をクリックして位置指定中…' : '地図で位置を指定'}
+                  {pickTarget === s.id ? '地図をクリックして位置指定中…' : '📍 地図で位置を指定'}
                 </button>
                 <span className="text-gray-400">
                   {s.lat !== null ? `位置設定済み (${s.lat!.toFixed(3)}, ${s.lng!.toFixed(3)})` : '位置未設定'}
                 </span>
-                <label className="cursor-pointer rounded-lg border border-gray-300 px-2.5 py-1 font-semibold text-gray-600 hover:bg-gray-50">
-                  📷 写真を追加
-                  <input type="file" accept="image/*" className="hidden" onChange={(e) => onSpotPhoto(s.id, e)} />
-                </label>
               </div>
               {s.photoId && photos.get(s.photoId) && (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -237,7 +249,7 @@ export default function TripForm({ initial }: Props) {
         <div className="rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-700">
           {pickTarget
             ? '地図をクリックすると、選択中のスポットに位置が設定されます。'
-            : 'スポットの「地図で位置を指定」を押してから地図をクリックしてください。写真のGPS情報からも自動設定されます。'}
+            : 'いちばん簡単なのは「📷 写真を追加」：スマホで撮った写真ならGPSから位置が自動で入ります。手動なら「📍 地図で位置を指定」を押してから地図をクリック。'}
         </div>
         <JapanMap route={route} onPick={onMapPick} height="520px" />
       </div>

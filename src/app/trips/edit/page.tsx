@@ -28,7 +28,7 @@ function EditTrip() {
     <div className="space-y-5">
       <h1 className="text-xl font-bold">旅行ルートを編集</h1>
       <p className="text-sm text-gray-500">
-        旅行が終わったら、各スポットに実際の写真を追加して状態を「旅行記」に変えましょう（予定→実績）。
+        旅行が終わったら、各スポットに実際の写真を追加して「行ってきた」に切り替えましょう。旅の記録がそのまま思い出ページになります。
       </p>
       <TripForm initial={trip} />
     </div>

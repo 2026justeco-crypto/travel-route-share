@@ -71,7 +71,7 @@ function TripDetail() {
                 trip.status === 'plan' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'
               }`}
             >
-              {trip.status === 'plan' ? '予定' : '旅行記'}
+              {trip.status === 'plan' ? '🗓 これから行く' : '📖 思い出'}
             </span>
             <span className="text-sm text-gray-400">
               {trip.startDate}
@@ -88,7 +88,7 @@ function TripDetail() {
                 onClick={markDone}
                 className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700"
               >
-                旅行記にする（予定→実績）
+                行ってきた！思い出にする
               </button>
             )}
             <Link
@@ -142,7 +142,7 @@ function TripDetail() {
 
         {/* 地図（右） */}
         <div className="lg:col-span-3">
-          <JapanMap route={route} center={center} zoom={route.length ? 11 : 5} height="560px" />
+          <JapanMap route={route} center={center} zoom={route.length ? 11 : 5} height="560px" fitRoute />
           {route.length < trip.spots.length && (
             <p className="mt-1.5 text-xs text-gray-400">
               位置未設定のスポットは地図に表示されません（編集画面で設定できます）。
