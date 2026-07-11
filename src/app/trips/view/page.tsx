@@ -142,7 +142,7 @@ function TripDetail() {
 
         {/* 地図（右） */}
         <div className="lg:col-span-3">
-          <JapanMap route={route} center={center} zoom={route.length ? 11 : 5} height="560px" fitRoute />
+          <JapanMap route={route} center={center} zoom={route.length ? 11 : 5} height="560px" fitRoute roadRoute fitButton />
           {route.length < trip.spots.length && (
             <p className="mt-1.5 text-xs text-gray-400">
               位置未設定のスポットは地図に表示されません（編集画面で設定できます）。

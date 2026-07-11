@@ -21,16 +21,17 @@ const JapanMap = dynamic(() => import('@/components/JapanMap'), { ssr: false });
 
 interface Props {
   initial?: Trip; // 編集時に渡す
+  initialStatus?: 'plan' | 'done'; // 新規作成時の初期状態（「思い出をつくる」入口用）
 }
 
-export default function TripForm({ initial }: Props) {
+export default function TripForm({ initial, initialStatus }: Props) {
   const router = useRouter();
   const [title, setTitle] = useState(initial?.title ?? '');
   const [startDate, setStartDate] = useState(
     initial?.startDate ?? new Date().toISOString().slice(0, 10),
   );
   const [endDate, setEndDate] = useState(initial?.endDate ?? '');
-  const [status, setStatus] = useState<'plan' | 'done'>(initial?.status ?? 'plan');
+  const [status, setStatus] = useState<'plan' | 'done'>(initial?.status ?? initialStatus ?? 'plan');
   const [spots, setSpots] = useState<TripSpot[]>(initial?.spots ?? []);
   const [photos, setPhotos] = useState<Map<string, string>>(new Map());
   const [pickTarget, setPickTarget] = useState<string | null>(null);
@@ -305,7 +306,7 @@ export default function TripForm({ initial }: Props) {
             ? '地図をクリックすると、選択中のスポットに位置が設定されます。'
             : 'スポット名を入れて「🔍 名前から位置を探す」→候補を選ぶだけで位置が入ります。スマホ写真なら「📷 写真を追加」でGPSから自動設定。手動派は「📍 地図で指定」→地図をクリック。'}
         </div>
-        <JapanMap route={route} onPick={onMapPick} height="520px" />
+        <JapanMap route={route} onPick={onMapPick} height="520px" fitButton />
       </div>
     </div>
   );

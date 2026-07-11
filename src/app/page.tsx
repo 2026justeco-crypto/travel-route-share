@@ -33,6 +33,7 @@ export default function Home() {
   const [filters, setFilters] = useState<Filters>(defaultFilters());
   const [query, setQuery] = useState('');
   const [loaded, setLoaded] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -103,7 +104,27 @@ export default function Home() {
 
   return (
     <div className="space-y-6">
-      {/* 検索バー */}
+      {/* ヒーロー：まずは2つの入口だけ（情報量過多の解消） */}
+      <section className="rounded-3xl bg-gradient-to-br from-sky-400 to-blue-500 px-6 py-10 text-center text-white shadow-lg shadow-sky-200">
+        <h1 className="text-2xl font-extrabold sm:text-3xl">旅行のぜんぶを、地図にのこそう</h1>
+        <p className="mt-2 text-sm text-sky-50">計画も、思い出も。ルートごと共有できる旅行SNS</p>
+        <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
+          <Link
+            href="/trips/new"
+            className="w-full max-w-xs rounded-full bg-white px-8 py-3.5 text-base font-extrabold text-sky-600 shadow-md transition hover:-translate-y-0.5 sm:w-auto"
+          >
+            🧭 ルートを作る
+          </Link>
+          <Link
+            href="/trips/new?mode=omoide"
+            className="w-full max-w-xs rounded-full border-2 border-white/80 px-8 py-3.5 text-base font-extrabold text-white transition hover:bg-white/10 sm:w-auto"
+          >
+            📖 思い出をつくる
+          </Link>
+        </div>
+      </section>
+
+      {/* 検索バー＋絞り込み（フィルターは折りたたみ） */}
       <div className="flex items-center gap-3">
         <input
           value={query}
@@ -111,10 +132,16 @@ export default function Home() {
           placeholder="🔍 地名・都道府県・タイトル・投稿者で検索"
           className="w-full rounded-full border-2 border-sky-100 bg-white px-5 py-2.5 text-sm shadow-sm outline-none focus:border-sky-400"
         />
+        <button
+          onClick={() => setShowFilters((v) => !v)}
+          className="shrink-0 rounded-full border-2 border-sky-100 bg-white px-4 py-2 text-sm font-bold text-sky-600 hover:border-sky-300"
+        >
+          絞り込み {showFilters ? '▲' : '▼'}
+        </button>
       </div>
 
-      {/* フィルター */}
-      <FilterPanel filters={filters} onChange={setFilters} />
+      {/* フィルター（デフォルト非表示） */}
+      {showFilters && <FilterPanel filters={filters} onChange={setFilters} />}
 
       {/* 地図 */}
       <section>
