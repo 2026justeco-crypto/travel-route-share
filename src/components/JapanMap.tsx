@@ -113,11 +113,11 @@ export default function JapanMap({
   ) as RoutePoint[];
 
   return (
-    <div style={{ height }} className="w-full overflow-hidden rounded-xl border border-gray-200">
+    <div style={{ height }} className="w-full overflow-hidden rounded-2xl border-2 border-sky-100">
       <MapContainer center={center} zoom={zoom} style={{ height: '100%', width: '100%' }} scrollWheelZoom>
         <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-          url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution='<a href="https://maps.gsi.go.jp/development/ichiran.html">国土地理院</a>'
+          url="https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png"
         />
         {onPick && <ClickPicker onPick={onPick} />}
         {fitRoute && <FitRoute route={routePoints} />}

@@ -108,8 +108,8 @@ export default function Home() {
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="地名・都道府県・タイトル・投稿者で検索"
-          className="w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm shadow-sm outline-none focus:border-blue-400"
+          placeholder="🔍 地名・都道府県・タイトル・投稿者で検索"
+          className="w-full rounded-full border-2 border-sky-100 bg-white px-5 py-2.5 text-sm shadow-sm outline-none focus:border-sky-400"
         />
       </div>
 
@@ -127,8 +127,11 @@ export default function Home() {
       {/* 新着旅行 */}
       <section>
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-bold">新着旅行</h2>
-          <Link href="/trips/new" className="text-sm font-semibold text-blue-600 hover:underline">
+          <h2 className="text-lg font-extrabold">🧳 新着旅行</h2>
+          <Link
+            href="/trips/new"
+            className="rounded-full bg-sky-100 px-3 py-1 text-sm font-bold text-sky-600 transition hover:bg-sky-200"
+          >
             ＋ 旅行ルートを作る
           </Link>
         </div>
@@ -145,7 +148,7 @@ export default function Home() {
                 <Link
                   key={t.id}
                   href={`/trips/view?id=${t.id}`}
-                  className="group overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm transition hover:shadow-md"
+                  className="group overflow-hidden rounded-2xl border-2 border-sky-100 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-sky-300 hover:shadow-lg"
                 >
                   <div className="h-36 w-full bg-gradient-to-br from-blue-100 to-sky-50">
                     {thumb && (
@@ -187,8 +190,11 @@ export default function Home() {
       {/* 新着投稿 */}
       <section>
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-bold">新着投稿</h2>
-          <Link href="/posts/new" className="text-sm font-semibold text-blue-600 hover:underline">
+          <h2 className="text-lg font-extrabold">📸 新着投稿</h2>
+          <Link
+            href="/posts/new"
+            className="rounded-full bg-sky-100 px-3 py-1 text-sm font-bold text-sky-600 transition hover:bg-sky-200"
+          >
             ＋ 写真を投稿する
           </Link>
         </div>
@@ -203,7 +209,7 @@ export default function Home() {
               return (
                 <div
                   key={p.id}
-                  className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm"
+                  className="overflow-hidden rounded-2xl border-2 border-sky-100 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-sky-300 hover:shadow-lg"
                 >
                   <div className="h-28 w-full bg-gray-100">
                     {photo && (

@@ -86,9 +86,9 @@ function TripDetail() {
             {trip.status === 'plan' && (
               <button
                 onClick={markDone}
-                className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700"
+                className="rounded-full bg-emerald-500 px-4 py-1.5 text-sm font-bold text-white shadow-md shadow-emerald-200 hover:bg-emerald-600"
               >
-                行ってきた！思い出にする
+                📖 行ってきた！思い出にする
               </button>
             )}
             <Link

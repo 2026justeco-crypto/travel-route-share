@@ -7,7 +7,15 @@ import type { Trip, TripSpot } from '@/lib/types';
 import { saveTrip, uid, CURRENT_USER } from '@/lib/store';
 import { photoPut, photoGetMany } from '@/lib/idb';
 import { extractGps, fileToDataUrl } from '@/lib/exif';
+import { searchPlaces, shortLabel, type PlaceHit } from '@/lib/geocode';
 import type { RoutePoint } from '@/components/JapanMap';
+
+interface SpotSearch {
+  spotId: string;
+  busy: boolean;
+  hits: PlaceHit[] | null;
+  error: string;
+}
 
 const JapanMap = dynamic(() => import('@/components/JapanMap'), { ssr: false });
 
@@ -27,6 +35,7 @@ export default function TripForm({ initial }: Props) {
   const [photos, setPhotos] = useState<Map<string, string>>(new Map());
   const [pickTarget, setPickTarget] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState<SpotSearch | null>(null);
 
   useEffect(() => {
     const ids = (initial?.spots ?? [])
@@ -78,6 +87,29 @@ export default function TripForm({ initial }: Props) {
   const onMapPick = (lat: number, lng: number) => {
     if (!pickTarget) return;
     updateSpot(pickTarget, { lat, lng });
+  };
+
+  const searchSpot = async (spotId: string) => {
+    const spot = spots.find((s) => s.id === spotId);
+    const q = spot?.name.trim();
+    if (!q || search?.busy) return;
+    setSearch({ spotId, busy: true, hits: null, error: '' });
+    try {
+      const hits = await searchPlaces(q);
+      setSearch({
+        spotId,
+        busy: false,
+        hits,
+        error: hits.length === 0 ? '見つかりませんでした。地名を足してみてください（例：横浜中華街 神奈川）' : '',
+      });
+    } catch {
+      setSearch({ spotId, busy: false, hits: null, error: '検索に失敗しました。少し待ってからもう一度どうぞ。' });
+    }
+  };
+
+  const pickHit = (spotId: string, hit: PlaceHit) => {
+    updateSpot(spotId, { lat: hit.lat, lng: hit.lng });
+    setSearch(null);
   };
 
   const route: RoutePoint[] = spots
@@ -195,24 +227,46 @@ export default function TripForm({ initial }: Props) {
                 className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm outline-none focus:border-blue-400"
               />
               <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                <label className="cursor-pointer rounded-lg border border-blue-300 px-2.5 py-1 font-semibold text-blue-600 hover:bg-blue-50">
+                <button
+                  onClick={() => searchSpot(s.id)}
+                  disabled={!s.name.trim() || (search?.busy && search.spotId === s.id)}
+                  className="rounded-full border border-blue-300 px-3 py-1 font-bold text-blue-600 hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-300"
+                >
+                  {search?.busy && search.spotId === s.id ? '検索中…' : '🔍 名前から位置を探す'}
+                </button>
+                <label className="cursor-pointer rounded-full border border-blue-300 px-3 py-1 font-bold text-blue-600 hover:bg-blue-50">
                   📷 写真を追加（位置も自動設定）
                   <input type="file" accept="image/*" className="hidden" onChange={(e) => onSpotPhoto(s.id, e)} />
                 </label>
                 <button
                   onClick={() => setPickTarget(pickTarget === s.id ? null : s.id)}
-                  className={`rounded-lg px-2.5 py-1 font-semibold ${
+                  className={`rounded-full px-3 py-1 font-bold ${
                     pickTarget === s.id
                       ? 'bg-blue-600 text-white'
                       : 'border border-gray-300 text-gray-600 hover:bg-gray-50'
                   }`}
                 >
-                  {pickTarget === s.id ? '地図をクリックして位置指定中…' : '📍 地図で位置を指定'}
+                  {pickTarget === s.id ? '地図をクリックして位置指定中…' : '📍 地図で指定'}
                 </button>
                 <span className="text-gray-400">
                   {s.lat !== null ? `位置設定済み (${s.lat!.toFixed(3)}, ${s.lng!.toFixed(3)})` : '位置未設定'}
                 </span>
               </div>
+              {search && search.spotId === s.id && (search.hits?.length || search.error) ? (
+                <div className="mt-2 space-y-1 rounded-xl bg-blue-50 p-2 text-xs">
+                  {search.error && <div className="text-red-500">{search.error}</div>}
+                  {search.hits?.map((h, hi) => (
+                    <button
+                      key={hi}
+                      onClick={() => pickHit(s.id, h)}
+                      className="block w-full rounded-lg bg-white px-2.5 py-1.5 text-left text-gray-700 shadow-sm hover:bg-blue-100"
+                    >
+                      📍 {shortLabel(h.label)}
+                    </button>
+                  ))}
+                  <div className="text-right text-[10px] text-gray-400">検索: OpenStreetMap Nominatim</div>
+                </div>
+              ) : null}
               {s.photoId && photos.get(s.photoId) && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
@@ -235,9 +289,9 @@ export default function TripForm({ initial }: Props) {
           <button
             onClick={submit}
             disabled={!valid || saving}
-            className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
+            className="rounded-full bg-sky-500 px-6 py-2 text-sm font-bold text-white shadow-md shadow-sky-200 hover:bg-sky-600 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:shadow-none"
           >
-            {saving ? '保存中…' : initial ? '更新する' : '旅行ルートを保存'}
+            {saving ? '保存中…' : initial ? '更新する' : '🧳 旅行ルートを保存'}
           </button>
           {!valid && (
             <span className="text-xs text-gray-400">タイトルと、各スポットの名前を入力してください</span>
@@ -249,7 +303,7 @@ export default function TripForm({ initial }: Props) {
         <div className="rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-700">
           {pickTarget
             ? '地図をクリックすると、選択中のスポットに位置が設定されます。'
-            : 'いちばん簡単なのは「📷 写真を追加」：スマホで撮った写真ならGPSから位置が自動で入ります。手動なら「📍 地図で位置を指定」を押してから地図をクリック。'}
+            : 'スポット名を入れて「🔍 名前から位置を探す」→候補を選ぶだけで位置が入ります。スマホ写真なら「📷 写真を追加」でGPSから自動設定。手動派は「📍 地図で指定」→地図をクリック。'}
         </div>
         <JapanMap route={route} onPick={onMapPick} height="520px" />
       </div>

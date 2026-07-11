@@ -7,6 +7,7 @@ import { extractGps, fileToDataUrl } from '@/lib/exif';
 import { nearestPrefecture } from '@/lib/regions';
 import { savePost, uid, CURRENT_USER } from '@/lib/store';
 import { photoPut } from '@/lib/idb';
+import { searchPlaces, shortLabel, type PlaceHit } from '@/lib/geocode';
 
 const JapanMap = dynamic(() => import('@/components/JapanMap'), { ssr: false });
 
@@ -18,8 +19,31 @@ export default function NewPostPage() {
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
   const [pos, setPos] = useState<{ lat: number; lng: number } | null>(null);
-  const [gpsMessage, setGpsMessage] = useState('写真を選ぶとGPS情報（Exif）から自動で位置を取得します。');
+  const [gpsMessage, setGpsMessage] = useState('写真を選ぶとGPS情報（Exif）から自動で位置を取得します。場所名の検索でもOK。');
   const [saving, setSaving] = useState(false);
+  const [searchBusy, setSearchBusy] = useState(false);
+  const [hits, setHits] = useState<PlaceHit[] | null>(null);
+
+  const doSearch = async () => {
+    const q = (placeName || title).trim();
+    if (!q || searchBusy) return;
+    setSearchBusy(true);
+    setHits(null);
+    try {
+      const found = await searchPlaces(q);
+      setHits(found);
+      if (found.length === 0) setGpsMessage('見つかりませんでした。地名を足してみてください（例：雷門 浅草）。');
+    } catch {
+      setGpsMessage('検索に失敗しました。少し待ってからもう一度どうぞ。');
+    }
+    setSearchBusy(false);
+  };
+
+  const pickHit = (h: PlaceHit) => {
+    setPos({ lat: h.lat, lng: h.lng });
+    setHits(null);
+    setGpsMessage('検索結果から位置を設定しました（地図クリックで微調整もできます）。');
+  };
 
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -128,6 +152,27 @@ export default function NewPostPage() {
 
         <div className="space-y-2">
           <div className="rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-700">{gpsMessage}</div>
+          <button
+            onClick={doSearch}
+            disabled={searchBusy || !(placeName || title).trim()}
+            className="w-full rounded-full border border-blue-300 px-3 py-1.5 text-xs font-bold text-blue-600 hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-300"
+          >
+            {searchBusy ? '検索中…' : '🔍 場所の名前（またはタイトル）で位置を検索'}
+          </button>
+          {hits && hits.length > 0 && (
+            <div className="space-y-1 rounded-xl bg-blue-50 p-2 text-xs">
+              {hits.map((h, i) => (
+                <button
+                  key={i}
+                  onClick={() => pickHit(h)}
+                  className="block w-full rounded-lg bg-white px-2.5 py-1.5 text-left text-gray-700 shadow-sm hover:bg-blue-100"
+                >
+                  📍 {shortLabel(h.label)}
+                </button>
+              ))}
+              <div className="text-right text-[10px] text-gray-400">検索: OpenStreetMap Nominatim</div>
+            </div>
+          )}
           <JapanMap
             onPick={(lat, lng) => {
               setPos({ lat, lng });
