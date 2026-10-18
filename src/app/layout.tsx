@@ -2,12 +2,16 @@ import type { Metadata } from "next";
 import { M_PLUS_Rounded_1c } from "next/font/google";
 import "./globals.css";
 import Header from "@/components/Header";
+import MainShell from "@/components/MainShell";
+import { DEFAULT_THEME, THEME_INIT_SCRIPT } from "@/lib/theme";
 
-// ポップな丸ゴシック。日本語はunicode-range分割で必要チャンクのみ実行時ロードされるため preload:false
+// 丸ゴシックの予備（A＝ポップ）。Hiragino Maru Gothic / BIZ UDPGothic が無い環境向け。
+// 日本語はunicode-range分割で必要チャンクのみ実行時ロードされるため preload:false
 const rounded = M_PLUS_Rounded_1c({
   weight: ["400", "700", "800"],
   preload: false,
   display: "swap",
+  variable: "--font-rounded",
 });
 
 export const metadata: Metadata = {
@@ -22,11 +26,20 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ja" className={`h-full antialiased ${rounded.className}`}>
-      <body className="min-h-full flex flex-col bg-sky-50 text-gray-900">
+    <html
+      lang="ja"
+      data-theme={DEFAULT_THEME}
+      suppressHydrationWarning
+      className={`h-full antialiased ${rounded.variable}`}
+    >
+      <head>
+        {/* 描画前に保存済みの見た目（A/B）を入れて、ちらつきを防ぐ */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
+      <body className="min-h-full flex flex-col bg-bg text-ink">
         <Header />
-        <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">{children}</main>
-        <footer className="border-t border-gray-200 bg-white py-4 text-center text-xs text-gray-400">
+        <MainShell>{children}</MainShell>
+        <footer className="border-t border-line bg-surface py-4 text-center text-xs text-muted">
           Travel Route Share（MVP・デモモード：データはこのブラウザ内にのみ保存されます）
         </footer>
       </body>

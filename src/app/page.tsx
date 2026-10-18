@@ -14,6 +14,9 @@ import {
 } from '@/lib/store';
 import { photoGetMany } from '@/lib/idb';
 import FilterPanel, { defaultFilters, type Filters } from '@/components/FilterPanel';
+import HeroBackdrop from '@/components/HeroBackdrop';
+import ThemeSwitch from '@/components/ThemeSwitch';
+import { RouteIcon, BookIcon, ArrowDownIcon } from '@/components/icons';
 import type { MapPin } from '@/components/JapanMap';
 
 const JapanMap = dynamic(() => import('@/components/JapanMap'), {
@@ -34,6 +37,8 @@ export default function Home() {
   const [query, setQuery] = useState('');
   const [loaded, setLoaded] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  // 「最近◯日」の基準時刻（描画のたびに変わらないよう、開いた時点で固定）
+  const [now] = useState(() => Date.now());
 
   useEffect(() => {
     (async () => {
@@ -55,7 +60,6 @@ export default function Home() {
   const q = query.trim().toLowerCase();
 
   const visiblePosts = useMemo(() => {
-    const now = Date.now();
     return posts.filter((p) => {
       const mine = p.userId === CURRENT_USER.id;
       if (mine && !filters.showMine) return false;
@@ -73,7 +77,7 @@ export default function Home() {
       }
       return true;
     });
-  }, [posts, filters, favs, q]);
+  }, [posts, filters, favs, q, now]);
 
   const visibleTrips = useMemo(() => {
     if (!q) return trips;
@@ -103,38 +107,61 @@ export default function Home() {
   };
 
   return (
-    <div className="space-y-6">
-      {/* ヒーロー：まずは2つの入口だけ（情報量過多の解消） */}
-      <section className="rounded-3xl bg-gradient-to-br from-sky-400 to-blue-500 px-6 py-10 text-center text-white shadow-lg shadow-sky-200">
-        <h1 className="text-2xl font-extrabold sm:text-3xl">旅行のぜんぶを、地図にのこそう</h1>
-        <p className="mt-2 text-sm text-sky-50">計画も、思い出も。ルートごと共有できる旅行SNS</p>
-        <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
-          <Link
-            href="/trips/new"
-            className="w-full max-w-xs rounded-full bg-white px-8 py-3.5 text-base font-extrabold text-sky-600 shadow-md transition hover:-translate-y-0.5 sm:w-auto"
+    <>
+      {/* 入口：最初の1画面まるごと。データの読み込みを待たずにすぐ押せる */}
+      <section className="relative isolate flex h-[100dvh] flex-col overflow-hidden">
+        <HeroBackdrop />
+        <ThemeSwitch className="absolute right-4 top-4 z-10" />
+
+        <div className="relative px-4 pt-5">
+          <div className="flex items-center gap-2 text-sm font-bold text-muted">
+            <span className="inline-block h-2.5 w-2.5 rounded-full bg-accent shadow-[0_0_10px_var(--accent)]" />
+            Travel Route Share
+          </div>
+        </div>
+
+        <div className="relative flex flex-1 flex-col items-center justify-center px-4 text-center">
+          <h1 className="text-[1.75rem] font-extrabold leading-snug text-ink sm:text-4xl">
+            旅行のぜんぶを、
+            <br className="sm:hidden" />
+            地図にのこそう
+          </h1>
+        </div>
+
+        <div className="relative mx-auto w-full max-w-md px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+          <div className="flex flex-col gap-3.5">
+            <Link href="/trips/new" className="t-btn t-btn-primary w-full">
+              <RouteIcon className="t-btn-icon h-6 w-6" />
+              ルートを作る
+            </Link>
+            <Link href="/trips/new?mode=omoide" className="t-btn t-btn-secondary w-full">
+              <BookIcon className="t-btn-icon h-6 w-6" />
+              思い出をつくる
+            </Link>
+          </div>
+          <a
+            href="#explore"
+            className="mx-auto mt-4 flex w-fit items-center gap-1 rounded-full px-3 py-2 text-sm font-bold text-muted hover:text-ink"
           >
-            🧭 ルートを作る
-          </Link>
-          <Link
-            href="/trips/new?mode=omoide"
-            className="w-full max-w-xs rounded-full border-2 border-white/80 px-8 py-3.5 text-base font-extrabold text-white transition hover:bg-white/10 sm:w-auto"
-          >
-            📖 思い出をつくる
-          </Link>
+            みんなの旅を見る
+            <ArrowDownIcon className="h-4 w-4" />
+          </a>
         </div>
       </section>
 
+      {/* 2画面目以降：検索・絞り込み・地図・新着（機能は今までどおり） */}
+      <div id="explore" className="mx-auto w-full max-w-6xl scroll-mt-16 space-y-6 px-4 pb-8 pt-20">
       {/* 検索バー＋絞り込み（フィルターは折りたたみ） */}
       <div className="flex items-center gap-3">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="🔍 地名・都道府県・タイトル・投稿者で検索"
-          className="w-full rounded-full border-2 border-sky-100 bg-white px-5 py-2.5 text-sm shadow-sm outline-none focus:border-sky-400"
+          className="w-full rounded-full border-2 border-line bg-surface px-5 py-2.5 text-sm text-ink shadow-sm outline-none placeholder:text-muted focus:border-primary"
         />
         <button
           onClick={() => setShowFilters((v) => !v)}
-          className="shrink-0 rounded-full border-2 border-sky-100 bg-white px-4 py-2 text-sm font-bold text-sky-600 hover:border-sky-300"
+          className="shrink-0 rounded-full border-2 border-line bg-surface px-4 py-2 text-sm font-bold text-ink hover:opacity-80"
         >
           絞り込み {showFilters ? '▲' : '▼'}
         </button>
@@ -146,7 +173,7 @@ export default function Home() {
       {/* 地図 */}
       <section>
         <JapanMap pins={pins} onToggleFavorite={onToggleFavorite} height="480px" />
-        <p className="mt-1.5 text-xs text-gray-400">
+        <p className="mt-1.5 text-xs text-muted">
           ピンは投稿者のアイコン（名前の頭文字）。青いピンが自分の投稿です。クリックすると写真と詳細が見られます。
         </p>
       </section>
@@ -154,16 +181,16 @@ export default function Home() {
       {/* 新着旅行 */}
       <section>
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-extrabold">🧳 新着旅行</h2>
+          <h2 className="text-lg font-extrabold text-ink">🧳 新着旅行</h2>
           <Link
             href="/trips/new"
-            className="rounded-full bg-sky-100 px-3 py-1 text-sm font-bold text-sky-600 transition hover:bg-sky-200"
+            className="rounded-full border-2 border-line bg-surface px-3 py-1 text-sm font-bold text-ink transition hover:opacity-80"
           >
             ＋ 旅行ルートを作る
           </Link>
         </div>
         {visibleTrips.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-400">
+          <div className="rounded-xl border border-dashed border-line bg-surface p-8 text-center text-sm text-muted">
             まだ旅行ルートがありません。「旅行ルート作成」から最初の旅を計画してみましょう。
           </div>
         ) : (
@@ -175,7 +202,7 @@ export default function Home() {
                 <Link
                   key={t.id}
                   href={`/trips/view?id=${t.id}`}
-                  className="group overflow-hidden rounded-2xl border-2 border-sky-100 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-sky-300 hover:shadow-lg"
+                  className="t-card group overflow-hidden transition hover:-translate-y-0.5"
                 >
                   <div className="h-36 w-full bg-gradient-to-br from-blue-100 to-sky-50">
                     {thumb && (
@@ -194,18 +221,18 @@ export default function Home() {
                       >
                         {t.status === 'plan' ? '🗓 これから行く' : '📖 思い出'}
                       </span>
-                      <span className="text-xs text-gray-400">
+                      <span className="text-xs text-muted">
                         {t.startDate}
                         {t.endDate && t.endDate !== t.startDate ? ` 〜 ${t.endDate}` : ''}
                       </span>
                     </div>
-                    <div className="mt-1 font-bold text-gray-900 group-hover:text-blue-600">
+                    <div className="mt-1 font-bold text-ink group-hover:text-primary">
                       {t.title}
                     </div>
-                    <div className="mt-1 truncate text-xs text-gray-500">
+                    <div className="mt-1 truncate text-xs text-muted">
                       {t.spots.map((s) => s.name).join(' → ')}
                     </div>
-                    <div className="mt-2 text-xs text-gray-400">{t.userName}</div>
+                    <div className="mt-2 text-xs text-muted">{t.userName}</div>
                   </div>
                 </Link>
               );
@@ -217,16 +244,16 @@ export default function Home() {
       {/* 新着投稿 */}
       <section>
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-extrabold">📸 新着投稿</h2>
+          <h2 className="text-lg font-extrabold text-ink">📸 新着投稿</h2>
           <Link
             href="/posts/new"
-            className="rounded-full bg-sky-100 px-3 py-1 text-sm font-bold text-sky-600 transition hover:bg-sky-200"
+            className="rounded-full border-2 border-line bg-surface px-3 py-1 text-sm font-bold text-ink transition hover:opacity-80"
           >
             ＋ 写真を投稿する
           </Link>
         </div>
         {loaded && visiblePosts.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-400">
+          <div className="rounded-xl border border-dashed border-line bg-surface p-8 text-center text-sm text-muted">
             表示できる投稿がありません（フィルターを確認してください）。
           </div>
         ) : (
@@ -236,7 +263,7 @@ export default function Home() {
               return (
                 <div
                   key={p.id}
-                  className="overflow-hidden rounded-2xl border-2 border-sky-100 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-sky-300 hover:shadow-lg"
+                  className="t-card overflow-hidden transition hover:-translate-y-0.5"
                 >
                   <div className="h-28 w-full bg-gray-100">
                     {photo && (
@@ -246,7 +273,7 @@ export default function Home() {
                   </div>
                   <div className="p-2.5">
                     <div className="flex items-start justify-between gap-1">
-                      <div className="text-sm font-bold leading-tight">{p.title}</div>
+                      <div className="text-sm font-bold leading-tight text-ink">{p.title}</div>
                       <button
                         onClick={() => onToggleFavorite(p.id)}
                         className={`text-base leading-none ${favs.has(p.id) ? 'text-amber-400' : 'text-gray-300'}`}
@@ -255,10 +282,10 @@ export default function Home() {
                         ★
                       </button>
                     </div>
-                    <div className="mt-0.5 text-xs text-gray-500">
+                    <div className="mt-0.5 text-xs text-muted">
                       {p.prefecture} ・ {p.userName}
                     </div>
-                    <div className="text-xs text-gray-400">{p.date}</div>
+                    <div className="text-xs text-muted">{p.date}</div>
                   </div>
                 </div>
               );
@@ -266,6 +293,7 @@ export default function Home() {
           </div>
         )}
       </section>
-    </div>
+      </div>
+    </>
   );
 }

@@ -1,8 +1,181 @@
 @import "tailwindcss";
 
+/* =========================================================
+   見た目の切替（A＝ポップ／B＝地球儀）
+   <html data-theme="a|b"> で変数だけを入れ替える。各画面はこの変数だけを使う。
+   ========================================================= */
+
+/* A＝ポップ（教育アプリ風）：丸ゴシック・濃紺3px枠・角丸・真下のベタ影・淡色に水玉 */
+:root,
+[data-theme="a"] {
+  --font: "Hiragino Maru Gothic ProN", "BIZ UDPGothic", var(--font-rounded),
+    system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  --bg: #eaf6ff;
+  --bg-dot: rgba(43, 45, 82, 0.07);
+  --surface: #ffffff;
+  --text: #2b2d52;
+  --text-muted: #5d6088;
+
+  --primary: #0f8fdc; /* 主色＝空色（1画面1主色）。白文字で大きい太字のコントラスト3:1以上 */
+  --primary-text: #ffffff;
+  --accent: #ffb020; /* 差し色 */
+  --accent-text: #2b2d52;
+
+  --line: #2b2d52; /* 枠線の色 */
+  --line-w: 3px;
+  --radius: 18px;
+  --radius-lg: 22px;
+  --shadow: 0 5px 0 #2b2d52; /* 真下のベタ影 */
+  --shadow-pressed: 0 1px 0 #2b2d52;
+  --press-y: 4px;
+
+  --btn2-bg: #ffffff; /* 2つ目のボタン（白地） */
+  --btn2-text: #2b2d52;
+
+  --header-bg: rgba(255, 255, 255, 0.92);
+  --header-line: #2b2d52;
+
+  --switch-bg: rgba(255, 255, 255, 0.85);
+  --switch-border: rgba(43, 45, 82, 0.25);
+  --switch-text: #2b2d52;
+  --switch-on-bg: #2b2d52;
+  --switch-on-text: #ffffff;
+
+  color-scheme: light;
+}
+
+/* B＝地球儀（Radio Garden／Google Earth風）：濃い単色・白文字・白地の大きな角丸・発光する緑 */
+[data-theme="b"] {
+  --font: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "BIZ UDPGothic",
+    system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  --bg: #05070f; /* 宇宙の黒（#2a0af0 と見比べて選んだ。理由は報告に記載） */
+  --bg-dot: transparent;
+  --surface: #121829;
+  --text: #ffffff;
+  --text-muted: #a9b3cc;
+
+  --primary: #ffffff;
+  --primary-text: #05070f;
+  --accent: #3dff9a; /* 発光する差し色 */
+  --accent-text: #05070f;
+
+  --line: rgba(255, 255, 255, 0.14);
+  --line-w: 1px;
+  --radius: 22px;
+  --radius-lg: 26px;
+  --shadow: 0 0 0 transparent;
+  --shadow-pressed: 0 0 0 transparent;
+  --press-y: 1px;
+
+  --btn2-bg: rgba(255, 255, 255, 0.08);
+  --btn2-text: #ffffff;
+
+  --header-bg: rgba(5, 7, 15, 0.85);
+  --header-line: rgba(255, 255, 255, 0.12);
+
+  --switch-bg: rgba(255, 255, 255, 0.08);
+  --switch-border: rgba(255, 255, 255, 0.2);
+  --switch-text: #ffffff;
+  --switch-on-bg: #3dff9a;
+  --switch-on-text: #05070f;
+
+  color-scheme: dark;
+}
+
+/* Tailwind から bg-surface / text-muted などで呼べるようにする */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-ink: var(--text);
+  --color-muted: var(--text-muted);
+  --color-primary: var(--primary);
+  --color-on-primary: var(--primary-text);
+  --color-accent: var(--accent);
+  --color-on-accent: var(--accent-text);
+  --color-line: var(--line);
+}
+
 body {
-  font-family: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "BIZ UDPGothic",
-    Meiryo, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family: var(--font);
+  background-color: var(--bg);
+  color: var(--text);
+}
+
+/* 押せるボタン（入口の大ボタン）：軽い押し込み感だけ */
+.t-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  min-height: 56px;
+  border: var(--line-w) solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  font-weight: 800;
+  font-size: 1.1875rem;
+  letter-spacing: 0.02em;
+  transition: transform 80ms ease, box-shadow 80ms ease, background-color 120ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.t-btn:active {
+  transform: translateY(var(--press-y));
+  box-shadow: var(--shadow-pressed);
+}
+.t-btn:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+.t-btn-primary {
+  background: var(--primary);
+  color: var(--primary-text);
+}
+.t-btn-secondary {
+  background: var(--btn2-bg);
+  color: var(--btn2-text);
+}
+[data-theme="b"] .t-btn-secondary {
+  border-color: rgba(255, 255, 255, 0.35);
+}
+[data-theme="b"] .t-btn-primary {
+  box-shadow: 0 0 28px rgba(61, 255, 154, 0.25);
+}
+[data-theme="b"] .t-btn-primary .t-btn-icon {
+  color: #0a8f52;
+}
+
+/* 一覧のカード（枠・角丸・影は変数から） */
+.t-card {
+  background: var(--surface);
+  border: var(--line-w) solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+/* 入口の背景（仮置き。依頼2で地図・地球儀に差し替える） */
+.hero-backdrop {
+  background-color: var(--bg);
+}
+[data-theme="a"] .hero-backdrop,
+:root:not([data-theme]) .hero-backdrop {
+  background-image: radial-gradient(var(--bg-dot) 2.5px, transparent 2.6px);
+  background-size: 22px 22px;
+}
+.hero-globe {
+  display: none;
+}
+[data-theme="b"] .hero-globe {
+  display: block;
+  background: radial-gradient(
+    circle at 38% 35%,
+    rgba(120, 170, 255, 0.55) 0%,
+    rgba(40, 80, 180, 0.35) 40%,
+    rgba(10, 20, 60, 0.15) 68%,
+    transparent 72%
+  );
+  filter: blur(6px);
+  box-shadow: 0 0 120px rgba(61, 255, 154, 0.08);
 }
 
 /* Leafletのポップアップ内の余白を調整 */
