@@ -35,6 +35,9 @@ export interface Post {
   createdAt: string; // ISO
 }
 
+/** 移動手段：徒歩／自転車／車／バス／電車／飛行機／船 */
+export type TransportMode = 'walk' | 'bike' | 'car' | 'bus' | 'train' | 'plane' | 'ship';
+
 export interface TripSpot {
   id: string;
   name: string;
@@ -42,6 +45,8 @@ export interface TripSpot {
   lat: number | null;
   lng: number | null;
   photoId: string | null;
+  /** このスポットから次のスポットへの移動手段。無い＝未設定（古いデータもこの扱い）。最後のスポットでは使わない */
+  moveTo?: TransportMode;
 }
 
 export type TripStatus = 'plan' | 'done'; // 予定 / 実績（旅行記）

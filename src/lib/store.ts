@@ -1,4 +1,4 @@
-import type { Post, Trip } from './types';
+import type { Post, Trip, TripSpot } from './types';
 import { nearestPrefecture } from './regions';
 import { photoPut } from './idb';
 
@@ -174,7 +174,46 @@ const DEMO_POSTS: SeedDef[] = [
   },
 ];
 
+// 7つの移動手段をすべて使った見本の旅行（依頼3）。既存の旅行には触らず、別の目印で1回だけ足す
+const SEED_TRIP_KEY = 'trs_seeded_trip_transport_v1';
+const DEMO_TRIP_ID = 'demo-trip-transport';
+
+function seedTransportTripIfNeeded() {
+  if (localStorage.getItem(SEED_TRIP_KEY)) return;
+  if (!getTrip(DEMO_TRIP_ID)) {
+    const spot = (
+      name: string,
+      lat: number,
+      lng: number,
+      memo: string,
+      moveTo?: TripSpot['moveTo'],
+    ): TripSpot => ({ id: uid(), name, memo, lat, lng, photoId: null, ...(moveTo ? { moveTo } : {}) });
+    saveTrip({
+      id: DEMO_TRIP_ID,
+      userId: 'demo',
+      userName: 'デモユーザー',
+      title: '東京から座間味まで 乗りもの全部のせ旅',
+      startDate: '2026-09-20',
+      endDate: '2026-09-24',
+      status: 'done',
+      spots: [
+        spot('東京駅', 35.6812, 139.7671, '新幹線で京都へ。', 'train'),
+        spot('京都駅', 34.9858, 135.7588, '駅から歩いて東山へ。', 'walk'),
+        spot('清水寺', 34.9949, 135.785, '舞台からの眺めが最高。市バスで金閣寺へ。', 'bus'),
+        spot('金閣寺', 35.0394, 135.7292, 'ここからレンタカーで空港へ。', 'car'),
+        spot('大阪国際空港（伊丹）', 34.7855, 135.4382, '飛行機で那覇へ。', 'plane'),
+        spot('那覇空港', 26.2058, 127.646, '自転車を借りて港まで。', 'bike'),
+        spot('泊港（とまりん）', 26.2263, 127.6806, 'フェリーで座間味島へ。', 'ship'),
+        spot('座間味港', 26.229, 127.303, '海の青さにびっくり。'),
+      ],
+      createdAt: new Date(Date.now() - 60000).toISOString(),
+    });
+  }
+  localStorage.setItem(SEED_TRIP_KEY, '1');
+}
+
 export async function seedIfNeeded(): Promise<void> {
+  seedTransportTripIfNeeded();
   if (localStorage.getItem(SEED_KEY)) return;
   const now = Date.now();
   for (let i = 0; i < DEMO_POSTS.length; i++) {

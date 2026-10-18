@@ -3,11 +3,14 @@
 import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
-import type { Trip, TripSpot } from '@/lib/types';
+import type { TransportMode, Trip, TripSpot } from '@/lib/types';
 import { saveTrip, uid, CURRENT_USER } from '@/lib/store';
 import { photoPut, photoGetMany } from '@/lib/idb';
 import { extractGps, fileToDataUrl } from '@/lib/exif';
 import { searchPlaces, shortLabel, type PlaceHit } from '@/lib/geocode';
+import { MODE_COLOR, TRANSPORT_LABEL, TRANSPORT_MODES, routeFromSpots } from '@/lib/transport';
+import { useTheme } from '@/lib/useTheme';
+import { ModeIcon, ModeUnsetIcon } from '@/components/icons';
 import type { RoutePoint } from '@/components/JapanMap';
 
 interface SpotSearch {
@@ -40,6 +43,9 @@ export default function TripForm({ initial, initialStatus }: Props) {
   const [pickTarget, setPickTarget] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState<SpotSearch | null>(null);
+  // 移動手段の選択肢を開いている区間（その区間の出発スポットの id）
+  const [moveOpen, setMoveOpen] = useState<string | null>(null);
+  const theme = useTheme();
 
   useEffect(() => {
     const ids = (initial?.spots ?? [])
@@ -53,8 +59,29 @@ export default function TripForm({ initial, initialStatus }: Props) {
 
   const addSpot = () => {
     const s: TripSpot = { id: uid(), name: '', memo: '', lat: null, lng: null, photoId: null };
-    setSpots((ss) => [...ss, s]);
+    setSpots((ss) => {
+      // 新しくできる区間（今の最後 → 新しいスポット）は、直前の区間と同じ手段を初期値にする（未設定なら未設定のまま）
+      const n = ss.length;
+      if (n >= 2 && ss[n - 2].moveTo && !ss[n - 1].moveTo) {
+        const prev = ss[n - 2].moveTo;
+        return [...ss.slice(0, n - 1), { ...ss[n - 1], moveTo: prev }, s];
+      }
+      return [...ss, s];
+    });
     setPickTarget(s.id);
+  };
+
+  const setMove = (spotId: string, mode: TransportMode | undefined) => {
+    setSpots((ss) =>
+      ss.map((x) => {
+        if (x.id !== spotId) return x;
+        const next = { ...x };
+        if (mode) next.moveTo = mode;
+        else delete next.moveTo;
+        return next;
+      }),
+    );
+    setMoveOpen(null);
   };
 
   const removeSpot = (id: string) => {
@@ -116,9 +143,7 @@ export default function TripForm({ initial, initialStatus }: Props) {
     setSearch(null);
   };
 
-  const route: RoutePoint[] = spots
-    .filter((s) => s.lat !== null && s.lng !== null)
-    .map((s, i) => ({ lat: s.lat!, lng: s.lng!, label: s.name || `スポット${i + 1}` }));
+  const route: RoutePoint[] = routeFromSpots(spots);
 
   const valid = title.trim() && spots.length >= 1 && spots.every((s) => s.name.trim());
 
@@ -133,7 +158,13 @@ export default function TripForm({ initial, initialStatus }: Props) {
       startDate,
       endDate: endDate || startDate,
       status,
-      spots,
+      // 最後のスポットには「次への移動手段」は要らないので外して保存する
+      spots: spots.map((s, i) => {
+        if (i < spots.length - 1 || !s.moveTo) return s;
+        const rest = { ...s };
+        delete rest.moveTo;
+        return rest;
+      }),
       createdAt: initial?.createdAt ?? new Date().toISOString(),
     };
     saveTrip(trip);
@@ -155,7 +186,7 @@ export default function TripForm({ initial, initialStatus }: Props) {
               className="w-full rounded-lg border border-line-soft px-3 py-2 text-sm outline-none focus:border-blue-400"
             />
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="mb-1 block text-sm font-semibold text-ink-soft">開始日</label>
               <input
@@ -174,37 +205,41 @@ export default function TripForm({ initial, initialStatus }: Props) {
                 className="w-full rounded-lg border border-line-soft px-3 py-2 text-sm outline-none focus:border-blue-400"
               />
             </div>
-            <div>
-              <label className="mb-1 block text-sm font-semibold text-ink-soft">この旅行は？</label>
-              <div className="flex rounded-lg border border-line-soft bg-surface-2 p-0.5">
-                <button
-                  type="button"
-                  onClick={() => setStatus('plan')}
-                  className={`flex-1 rounded-md px-2 py-1.5 text-xs font-semibold ${
-                    status === 'plan' ? 'bg-amber-500 text-white shadow' : 'text-muted hover:bg-surface-2'
-                  }`}
-                >
-                  🗓 これから行く
+          </div>
+          {/* 予定か思い出か：新規は入口で選んだ方に固定。編集では「これから行く」旅行にだけ「思い出にする」を出す */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span
+              className={`rounded-full px-2.5 py-1 text-xs font-bold ${
+                status === 'plan' ? 'bg-amber-500/15 text-amber-600' : 'bg-emerald-500/15 text-emerald-600'
+              }`}
+            >
+              {status === 'plan' ? '🗓 これから行く旅行' : '📖 行ってきた旅行（思い出）'}
+            </span>
+            {initial?.status === 'plan' && status === 'plan' && (
+              <button
+                type="button"
+                onClick={() => setStatus('done')}
+                className="min-h-11 rounded-full bg-emerald-500 px-4 text-sm font-bold text-white shadow-md hover:bg-emerald-600"
+              >
+                旅行が終わったら → 📖 思い出にする
+              </button>
+            )}
+            {initial?.status === 'plan' && status === 'done' && (
+              <span className="text-xs text-muted">
+                「更新する」で思い出になります。
+                <button type="button" onClick={() => setStatus('plan')} className="ml-1 font-bold text-link underline">
+                  取り消す
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setStatus('done')}
-                  className={`flex-1 rounded-md px-2 py-1.5 text-xs font-semibold ${
-                    status === 'done' ? 'bg-emerald-500 text-white shadow' : 'text-muted hover:bg-surface-2'
-                  }`}
-                >
-                  📖 行ってきた
-                </button>
-              </div>
-            </div>
+              </span>
+            )}
           </div>
         </div>
 
         {/* スポット一覧 */}
         <div className="space-y-3">
           {spots.map((s, i) => (
+            <div key={s.id}>
             <div
-              key={s.id}
               className={`rounded-xl border bg-surface p-3 ${
                 pickTarget === s.id ? 'border-blue-400 ring-2 ring-tint' : 'border-line-soft'
               }`}
@@ -280,6 +315,17 @@ export default function TripForm({ initial, initialStatus }: Props) {
                 />
               )}
             </div>
+            {i < spots.length - 1 && (
+              <MovePicker
+                mode={s.moveTo}
+                open={moveOpen === s.id}
+                color={s.moveTo ? MODE_COLOR[theme][s.moveTo] : undefined}
+                colors={MODE_COLOR[theme]}
+                onToggle={() => setMoveOpen(moveOpen === s.id ? null : s.id)}
+                onPick={(m) => setMove(s.id, m)}
+              />
+            )}
+            </div>
           ))}
           <button
             onClick={addSpot}
@@ -311,6 +357,75 @@ export default function TripForm({ initial, initialStatus }: Props) {
         </div>
         <JapanMap route={route} onPick={onMapPick} height="520px" fitButton />
       </div>
+    </div>
+  );
+}
+
+/** スポットとスポットの間：移動手段を選ぶ小さなボタン。押すと7つのアイコンが横に並ぶ（1タップで選んで閉じる） */
+function MovePicker({
+  mode,
+  open,
+  color,
+  colors,
+  onToggle,
+  onPick,
+}: {
+  mode: TransportMode | undefined;
+  open: boolean;
+  color: string | undefined;
+  colors: Record<TransportMode, string>;
+  onToggle: () => void;
+  onPick: (m: TransportMode | undefined) => void;
+}) {
+  return (
+    <div className="flex flex-col items-center py-1.5">
+      <div className="h-2 w-0.5 rounded bg-line-soft" aria-hidden />
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        aria-label={`次のスポットへの移動手段：${mode ? TRANSPORT_LABEL[mode] : '未設定'}（押して選ぶ）`}
+        className={`flex min-h-11 items-center gap-1.5 rounded-full border-2 bg-surface px-4 text-sm font-bold ${
+          mode ? '' : 'border-dashed border-line-soft text-muted'
+        }`}
+        style={mode && color ? { borderColor: color, color } : undefined}
+      >
+        {mode ? <ModeIcon mode={mode} className="h-5 w-5" /> : <ModeUnsetIcon className="h-5 w-5" />}
+        <span className={mode ? 'text-ink' : ''}>{mode ? TRANSPORT_LABEL[mode] : '移動手段'}</span>
+        <span className="text-[10px] text-muted" aria-hidden>
+          {open ? '▲' : '▼'}
+        </span>
+      </button>
+      {open && (
+        <div className="mt-2 w-full rounded-xl border border-line-soft bg-surface p-1.5 shadow-sm">
+          <div role="group" aria-label="移動手段を選ぶ" className="grid grid-cols-7 gap-1">
+            {TRANSPORT_MODES.map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => onPick(m)}
+                aria-pressed={mode === m}
+                className={`flex min-h-[52px] min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg border-2 px-0.5 text-[10px] font-bold leading-tight ${
+                  mode === m ? 'bg-tint' : 'border-transparent hover:bg-surface-2'
+                }`}
+                style={{ color: colors[m], ...(mode === m ? { borderColor: colors[m] } : {}) }}
+              >
+                <ModeIcon mode={m} className="h-6 w-6" />
+                <span className="whitespace-nowrap text-ink-soft">{TRANSPORT_LABEL[m]}</span>
+              </button>
+            ))}
+          </div>
+          {mode && (
+            <button
+              type="button"
+              onClick={() => onPick(undefined)}
+              className="mt-1 min-h-11 w-full rounded-lg text-xs font-bold text-muted hover:bg-surface-2"
+            >
+              未設定に戻す
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

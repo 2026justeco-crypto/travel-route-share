@@ -1,4 +1,7 @@
 // シンプルな線のアイコン（SVG直書き・ライブラリなし）。色は currentColor。
+import type { TransportMode } from '@/lib/types';
+import { MODE_ICON } from '@/lib/transport';
+
 type P = { className?: string };
 
 const base = {
@@ -40,6 +43,28 @@ export function ArrowDownIcon({ className }: P) {
     <svg {...base} className={className}>
       <path d="M12 5v14" />
       <path d="m6 13 6 6 6-6" />
+    </svg>
+  );
+}
+
+/** 移動手段のアイコン（形は lib/transport.ts の MODE_ICON と共通） */
+export function ModeIcon({ mode, className }: P & { mode: TransportMode }) {
+  return (
+    <svg {...base} className={className}>
+      {MODE_ICON[mode].map((d, i) => (
+        <path key={i} d={d} />
+      ))}
+    </svg>
+  );
+}
+
+/** 移動手段が未設定のときの印（はてな入りの丸） */
+export function ModeUnsetIcon({ className }: P) {
+  return (
+    <svg {...base} className={className}>
+      <circle cx="12" cy="12" r="9" strokeDasharray="3 3" />
+      <path d="M9.6 9.4a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2-2.4 3.4" />
+      <path d="M12 17h.01" />
     </svg>
   );
 }

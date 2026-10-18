@@ -8,6 +8,9 @@ import type { Trip } from '@/lib/types';
 import { getTrip, saveTrip, deleteTrip, CURRENT_USER } from '@/lib/store';
 import { photoGetMany } from '@/lib/idb';
 import type { RoutePoint } from '@/components/JapanMap';
+import { ModeIcon } from '@/components/icons';
+import { MODE_COLOR, TRANSPORT_LABEL, routeFromSpots } from '@/lib/transport';
+import { useTheme } from '@/lib/useTheme';
 
 const JapanMap = dynamic(() => import('@/components/JapanMap'), {
   ssr: false,
@@ -20,6 +23,7 @@ function TripDetail() {
   const router = useRouter();
   const [trip, setTrip] = useState<Trip | null | undefined>(undefined);
   const [photos, setPhotos] = useState<Map<string, string>>(new Map());
+  const theme = useTheme();
 
   useEffect(() => {
     const t = getTrip(id) ?? null;
@@ -38,9 +42,7 @@ function TripDetail() {
       </div>
     );
 
-  const route: RoutePoint[] = trip.spots
-    .filter((s) => s.lat !== null && s.lng !== null)
-    .map((s, i) => ({ lat: s.lat!, lng: s.lng!, label: s.name || `スポット${i + 1}` }));
+  const route: RoutePoint[] = routeFromSpots(trip.spots);
 
   const center: [number, number] =
     route.length > 0
@@ -134,9 +136,19 @@ function TripDetail() {
                     )}
                     {s.memo && <p className="mt-2 whitespace-pre-wrap text-sm text-muted">{s.memo}</p>}
                   </div>
-                  {i < trip.spots.length - 1 && (
-                    <div className="py-1 text-center text-lg leading-none text-blue-400">↓</div>
-                  )}
+                  {i < trip.spots.length - 1 &&
+                    (s.moveTo ? (
+                      <div
+                        className="flex items-center justify-center gap-1.5 py-1.5 text-sm font-bold"
+                        style={{ color: MODE_COLOR[theme][s.moveTo] }}
+                      >
+                        <span className="text-lg leading-none">↓</span>
+                        <ModeIcon mode={s.moveTo} className="h-5 w-5" />
+                        <span className="text-ink-soft">{TRANSPORT_LABEL[s.moveTo]}</span>
+                      </div>
+                    ) : (
+                      <div className="py-1 text-center text-lg leading-none text-blue-400">↓</div>
+                    ))}
                 </li>
               );
             })}

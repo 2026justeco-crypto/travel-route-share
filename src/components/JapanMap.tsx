@@ -9,10 +9,25 @@ import { createPortal } from 'react-dom';
 import maplibregl from 'maplibre-gl';
 import type { GeoJSONSource, IControl, LngLatBoundsLike, Map as MlMap } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { fetchRoadRoute } from '@/lib/route';
+import { fetchRoadLegs, isRoadLegsCached } from '@/lib/route';
 import { MAP_BG, mapStyle } from '@/lib/mapStyles';
 import type { ThemeId } from '@/lib/theme';
 import { useTheme } from '@/lib/useTheme';
+import type { TransportMode } from '@/lib/types';
+import {
+  LINE_CASING,
+  MODE_COLOR,
+  MODE_LINE,
+  TRANSPORT_LABEL,
+  TRANSPORT_MODES,
+  followsRoad,
+  greatCircle,
+  isTransportMode,
+  modeIconSvgElement,
+  pathMidpoint,
+  type ModeKey,
+} from '@/lib/transport';
+import { ModeIcon } from '@/components/icons';
 
 export interface MapPin {
   id: string;
@@ -31,6 +46,7 @@ export interface RoutePoint {
   lat: number;
   lng: number;
   label: string;
+  moveTo?: TransportMode; // この点から次の点への移動手段（無い＝未設定）
 }
 
 interface Props {
@@ -43,16 +59,37 @@ interface Props {
   height?: string;
   onToggleFavorite?: (postId: string) => void;
   fitRoute?: boolean; // ルート全体が収まるよう表示範囲を自動調整（閲覧ページ用）
-  roadRoute?: boolean; // 実際の道路に沿ったルートを描く（OSRM・失敗時は直線にフォールバック）
+  roadRoute?: boolean; // 実際の道路に沿ったルートを描く（OSRM・失敗時は直線にフォールバック）。電車・船・飛行機の区間は対象外
   fitButton?: boolean; // 「ルート全体を表示」ボタンを地図上に出す（編集ページ用）
 }
 
 type LatLng = [number, number];
 
-const ROUTE_COLOR: Record<ThemeId, { line: string; casing: string }> = {
-  a: { line: '#2563eb', casing: '#ffffff' },
-  b: { line: '#6cc7ff', casing: 'rgba(0,0,0,0.55)' },
-};
+// OSRM を1回の表示で呼ぶ上限（道路沿いの「ひと続き」の数。超えた分は直線で描く）
+const MAX_ROAD_RUNS = 3;
+const OSRM_GAP_MS = 1100; // デモサーバーへの連続呼び出しは1秒以上あける
+
+/** 区間（i → i+1）の移動手段が道路沿いのものが続くところを [始点, 終点] の点番号でまとめる */
+function roadRuns(route: RoutePoint[]): [number, number][] {
+  const runs: [number, number][] = [];
+  let start = -1;
+  for (let i = 0; i < route.length - 1; i++) {
+    if (followsRoad(route[i].moveTo)) {
+      if (start < 0) start = i;
+    } else if (start >= 0) {
+      runs.push([start, i]);
+      start = -1;
+    }
+  }
+  if (start >= 0) runs.push([start, route.length - 1]);
+  return runs;
+}
+
+interface Segment {
+  mode: ModeKey;
+  road: boolean; // 道路沿いの線が取れた
+  coords: [number, number][]; // [lng, lat]
+}
 
 // 投稿者ごとに安定した色を名前から決める（アカウント機構ができるまでの簡易アバター）
 function userColor(name: string): string {
@@ -137,30 +174,43 @@ export default function JapanMap(props: Props) {
 
   const routePoints = route.filter((r) => r.lat !== null && r.lng !== null);
   // 呼び出し側は毎回新しい配列を渡してくるので、中身が同じなら同じものとして扱う
-  const routeKey = JSON.stringify(routePoints.map((r) => [r.lat, r.lng, r.label]));
+  const routeKey = JSON.stringify(routePoints.map((r) => [r.lat, r.lng, r.label, r.moveTo ?? null]));
   const stableRoute = useMemo<RoutePoint[]>(
     () =>
-      (JSON.parse(routeKey) as [number, number, string][]).map(([lat, lng, label]) => ({
+      (JSON.parse(routeKey) as [number, number, string, string | null][]).map(([lat, lng, label, mv]) => ({
         lat,
         lng,
         label,
+        ...(isTransportMode(mv) ? { moveTo: mv } : {}),
       })),
     [routeKey],
   );
 
-  // 実道路ルート（OSRM）。ルートが変わった時だけ取得し、失敗時は null のまま＝直線で描画
-  const [road, setRoad] = useState<{ key: string; path: LatLng[] | null } | null>(null);
+  // 実道路ルート（OSRM）。ルートが変わった時だけ取得する。区間 i の道路沿いの線（無い区間は null＝直線で描く）
+  const [road, setRoad] = useState<{ key: string; legs: (LatLng[] | null)[] } | null>(null);
   useEffect(() => {
     if (!roadRoute || stableRoute.length < 2) return;
     let cancelled = false;
-    fetchRoadRoute(stableRoute).then((p) => {
-      if (!cancelled) setRoad({ key: routeKey, path: p });
-    });
+    (async () => {
+      const legs: (LatLng[] | null)[] = new Array(stableRoute.length - 1).fill(null);
+      const runs = roadRuns(stableRoute).slice(0, MAX_ROAD_RUNS);
+      let called = false;
+      for (const [a, b] of runs) {
+        const pts = stableRoute.slice(a, b + 1);
+        const willCall = pts.length >= 2 && pts.length <= 12 && !isRoadLegsCached(pts);
+        if (willCall && called) await new Promise((r) => setTimeout(r, OSRM_GAP_MS));
+        if (cancelled) return;
+        const got = await fetchRoadLegs(pts);
+        if (willCall) called = true;
+        if (got) got.forEach((leg, k) => (legs[a + k] = leg));
+      }
+      if (!cancelled) setRoad({ key: routeKey, legs });
+    })();
     return () => {
       cancelled = true;
     };
   }, [roadRoute, routeKey, stableRoute]);
-  const roadPath = roadRoute && road?.key === routeKey ? road.path : null;
+  const roadLegs = roadRoute && road?.key === routeKey ? road.legs : null;
 
   return (
     <MapView
@@ -168,7 +218,8 @@ export default function JapanMap(props: Props) {
       {...props}
       theme={theme}
       route={stableRoute}
-      roadPath={roadPath}
+      roadLegs={roadLegs}
+      roadNote={roadRoute}
     />
   );
 }
@@ -179,7 +230,8 @@ function MapView({
   theme,
   pins = [],
   route,
-  roadPath,
+  roadLegs,
+  roadNote,
   onPick,
   picked,
   center = [37.5, 137.0],
@@ -191,7 +243,8 @@ function MapView({
 }: Omit<Props, 'route' | 'roadRoute'> & {
   theme: ThemeId;
   route: RoutePoint[];
-  roadPath: LatLng[] | null;
+  roadLegs: (LatLng[] | null)[] | null;
+  roadNote: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<MlMap | null>(null);
@@ -339,60 +392,66 @@ function MapView({
       });
   }, [map, route]);
 
-  // ルート線（道路沿いが取れたら実線、取れなければ直線の破線）
+  // 区間ごとの線（道路沿いが取れた区間はその形、電車・船は直線、飛行機は大圏の弧）
+  const segments = useMemo<Segment[]>(() => {
+    const out: Segment[] = [];
+    for (let i = 0; i < route.length - 1; i++) {
+      const a: [number, number] = [route[i].lng, route[i].lat];
+      const b: [number, number] = [route[i + 1].lng, route[i + 1].lat];
+      const mode: ModeKey = route[i].moveTo ?? 'none';
+      const leg = roadLegs?.[i];
+      if (leg && leg.length >= 2) {
+        out.push({ mode, road: true, coords: leg.map(([lat, lng]) => [lng, lat]) });
+      } else if (mode === 'plane') {
+        out.push({ mode, road: false, coords: greatCircle(a, b) });
+      } else {
+        out.push({ mode, road: false, coords: [a, b] });
+      }
+    }
+    return out;
+  }, [route, roadLegs]);
+
   useEffect(() => {
     if (!map) return;
-    const road = roadPath && roadPath.length >= 2;
-    const coords = road
-      ? roadPath.map(([lat, lng]) => [lng, lat])
-      : route.map((r) => [r.lng, r.lat]);
     const data: GeoJSON.FeatureCollection = {
       type: 'FeatureCollection',
-      features:
-        coords.length >= 2
-          ? [
-              {
-                type: 'Feature',
-                properties: { kind: road ? 'road' : 'straight' },
-                geometry: { type: 'LineString', coordinates: coords },
-              },
-            ]
-          : [],
+      features: segments.map((sg) => ({
+        type: 'Feature',
+        properties: { m: sg.mode, road: sg.road },
+        geometry: { type: 'LineString', coordinates: sg.coords },
+      })),
     };
     const src = map.getSource('route') as GeoJSONSource | undefined;
     if (src) {
       src.setData(data);
       return;
     }
-    const color = ROUTE_COLOR[theme];
     map.addSource('route', { type: 'geojson', data });
-    map.addLayer({
-      id: 'route-casing',
-      type: 'line',
-      source: 'route',
-      layout: { 'line-cap': 'round', 'line-join': 'round' },
-      paint: {
-        'line-color': color.casing,
-        'line-width': ['match', ['get', 'kind'], 'road', 7, 5],
-        'line-opacity': ['match', ['get', 'kind'], 'road', 0.9, 0.6],
-      },
-    });
-    map.addLayer({
-      id: 'route-road',
-      type: 'line',
-      source: 'route',
-      filter: ['==', ['get', 'kind'], 'road'],
-      layout: { 'line-cap': 'round', 'line-join': 'round' },
-      paint: { 'line-color': color.line, 'line-width': 4, 'line-opacity': 0.9 },
-    });
-    map.addLayer({
-      id: 'route-straight',
-      type: 'line',
-      source: 'route',
-      filter: ['==', ['get', 'kind'], 'straight'],
-      paint: { 'line-color': color.line, 'line-width': 3, 'line-dasharray': [2, 2.6] },
-    });
-  }, [map, route, roadPath, theme]);
+    addRouteLayers(map, theme);
+  }, [map, segments, theme]);
+
+  // 区間の真ん中に移動手段のアイコン（未設定の区間には置かない）。押しても地図の操作の邪魔をしない
+  useEffect(() => {
+    if (!map) return;
+    const markers = segments
+      .filter((sg): sg is Segment & { mode: TransportMode } => sg.mode !== 'none')
+      .map((sg) => {
+        const el = document.createElement('div');
+        el.className = 'trs-modeicon';
+        el.style.color = MODE_COLOR[theme][sg.mode];
+        el.style.borderColor = MODE_COLOR[theme][sg.mode];
+        el.appendChild(modeIconSvgElement(sg.mode, 16));
+        return new maplibregl.Marker({ element: el, anchor: 'center' })
+          .setLngLat(pathMidpoint(sg.coords))
+          .addTo(map);
+      });
+    return () => markers.forEach((mk) => mk.remove());
+  }, [map, segments, theme]);
+
+  // 凡例：使っている手段だけ（全部未設定の古い旅行では手段の行は出さない）
+  const usedModes = TRANSPORT_MODES.filter((m) => segments.some((sg) => sg.mode === m));
+  const hasUnset = segments.some((sg) => sg.mode === 'none');
+  const hasRoad = roadNote && segments.some((sg) => sg.road);
 
   // 閲覧ページ：ルート全体が収まるように合わせる（ルートの中身が変わったときだけ）
   useEffect(() => {
@@ -430,6 +489,26 @@ function MapView({
     >
       {/* maplibre-gl.css が .maplibregl-map に position:relative を当てるので、位置はインラインで指定する */}
       <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
+
+      {/* 左上の凡例（使っている移動手段だけ）＋道のりの注記 */}
+      {(usedModes.length > 0 || hasRoad) && (
+        <div className="trs-legend" aria-label="移動手段の凡例">
+          {usedModes.map((m) => (
+            <div key={m} className="trs-legend-row">
+              <LegendSwatch mode={m} theme={theme} />
+              <ModeIcon mode={m} className="h-3.5 w-3.5 shrink-0" />
+              <span>{TRANSPORT_LABEL[m]}</span>
+            </div>
+          ))}
+          {usedModes.length > 0 && hasUnset && (
+            <div className="trs-legend-row">
+              <LegendSwatch mode="none" theme={theme} />
+              <span className="pl-[18px]">未設定</span>
+            </div>
+          )}
+          {hasRoad && <div className="trs-legend-note">道のりは目安</div>}
+        </div>
+      )}
 
       {/* 右下の丸い操作ボタン（ズーム±・ルート全体） */}
       {createPortal(
@@ -477,6 +556,124 @@ function MapView({
         </div>
       )}
     </div>
+  );
+}
+
+// ---- 区間の線のレイヤー（色・太さ・破線は lib/transport.ts の定義から） ----
+
+function addRouteLayers(map: MlMap, theme: ThemeId) {
+  const col = MODE_COLOR[theme];
+  const cas = LINE_CASING[theme];
+  const isM = (m: ModeKey): maplibregl.ExpressionSpecification => ['==', ['get', 'm'], m];
+  const round = { 'line-cap': 'round', 'line-join': 'round' } as const;
+
+  // 下敷きの縁（バス・徒歩以外。徒歩は点の形の縁を別に敷く）
+  map.addLayer({
+    id: 'route-casing',
+    type: 'line',
+    source: 'route',
+    filter: ['!', ['in', ['get', 'm'], ['literal', ['bus', 'walk']]]],
+    layout: round,
+    paint: {
+      'line-color': cas.casing,
+      'line-width': [
+        'match',
+        ['get', 'm'],
+        'bike', 5.5,
+        'car', 8.5,
+        'train', 8,
+        'plane', 5,
+        'ship', 6,
+        ['case', ['get', 'road'], 7, 5],
+      ],
+      'line-opacity': ['case', ['all', ['==', ['get', 'm'], 'none'], ['!', ['get', 'road']]], 0.6, 0.9],
+    },
+  });
+  // 徒歩：点の形の縁
+  map.addLayer({
+    id: 'route-walk-casing',
+    type: 'line',
+    source: 'route',
+    filter: isM('walk'),
+    layout: round,
+    paint: { 'line-color': cas.casing, 'line-width': 7, 'line-dasharray': [0, 10 / 7] },
+  });
+  // バス：別色の太い縁取り
+  map.addLayer({
+    id: 'route-bus-outline',
+    type: 'line',
+    source: 'route',
+    filter: isM('bus'),
+    layout: round,
+    paint: { 'line-color': cas.busOutline, 'line-width': 9.5 },
+  });
+  // 未設定：今までどおり（道路沿いは実線、直線は破線）
+  map.addLayer({
+    id: 'route-none-road',
+    type: 'line',
+    source: 'route',
+    filter: ['all', isM('none'), ['get', 'road']],
+    layout: round,
+    paint: { 'line-color': col.none, 'line-width': 4, 'line-opacity': 0.9 },
+  });
+  map.addLayer({
+    id: 'route-none-straight',
+    type: 'line',
+    source: 'route',
+    filter: ['all', isM('none'), ['!', ['get', 'road']]],
+    paint: { 'line-color': col.none, 'line-width': 3, 'line-dasharray': [2, 2.6] },
+  });
+  // 手段ごとの線
+  for (const m of TRANSPORT_MODES) {
+    const spec = MODE_LINE[m];
+    map.addLayer({
+      id: `route-${m}`,
+      type: 'line',
+      source: 'route',
+      filter: isM(m),
+      layout: spec.round || !spec.dash ? round : { 'line-join': 'round' },
+      paint: {
+        'line-color': col[m],
+        'line-width': spec.width,
+        ...(spec.dash ? { 'line-dasharray': spec.dash } : {}),
+      },
+    });
+  }
+  // 電車：枕木風の縞
+  map.addLayer({
+    id: 'route-train-ties',
+    type: 'line',
+    source: 'route',
+    filter: isM('train'),
+    paint: { 'line-color': cas.trainTie, 'line-width': 2.2, 'line-dasharray': [1.2, 1.8] },
+  });
+}
+
+/** 凡例の線の見本（地図の線と同じ太さ・破線の比で描く） */
+function LegendSwatch({ mode, theme }: { mode: ModeKey; theme: ThemeId }) {
+  const col = MODE_COLOR[theme][mode];
+  const cas = LINE_CASING[theme];
+  const line = (stroke: string, w: number, dash?: [number, number], cap: 'round' | 'butt' = 'butt') => (
+    <line
+      x1={cap === 'round' ? 4 : 1}
+      x2={cap === 'round' ? 26 : 29}
+      y1={6}
+      y2={6}
+      stroke={stroke}
+      strokeWidth={w}
+      strokeLinecap={cap}
+      strokeDasharray={dash ? `${dash[0] * w} ${dash[1] * w}` : undefined}
+    />
+  );
+  const spec = MODE_LINE[mode];
+  return (
+    <svg width="30" height="12" viewBox="0 0 30 12" aria-hidden className="shrink-0">
+      {mode === 'bus' && line(cas.busOutline, 9.5, undefined, 'round')}
+      {mode === 'none'
+        ? line(col, 3, [2, 2.6])
+        : line(col, spec.width, spec.dash, spec.round || !spec.dash ? 'round' : 'butt')}
+      {mode === 'train' && line(cas.trainTie, 2.2, [1.2, 1.8])}
+    </svg>
   );
 }
 
