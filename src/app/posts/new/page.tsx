@@ -17,6 +17,8 @@ import { useMounted } from '@/lib/useMounted';
 import ShareToPicker, { ShareIcon, shareLabel, type ShareValue } from '@/components/ShareToPicker';
 import HomeNotice from '@/components/HomeNotice';
 import { checkBeforeSave, markHomeHintDone, type SaveCheck } from '@/lib/home';
+import { LIMITS, saveErrorMessage } from '@/lib/limits';
+import CharLeft from '@/components/CharLeft';
 
 const MAP_HEIGHT = 'min(48vh, 360px)';
 
@@ -199,12 +201,15 @@ function PostForm() {
       posted = true;
       // 見せる先のグループを付ける
       await syncShares('post', saved.id, visibility, share.groupIds);
-    } catch {
+    } catch (e) {
       // 投稿できなかったら、置いた写真は消す（入力と下書きの写真は残す）
       // （投稿まで済んでいたら写真は投稿に付いているので消さない。やり直すと同じ投稿を上書きする）
       if (photoId && !posted) void removePhotos([photoId]);
       setSaving(false);
-      setSaveError('投稿できませんでした。通信のよいところで、もう一度「投稿する」を押してください（入力は消えません）。');
+      // 上限（回数・長さ）に当たったときは、その言葉を出す
+      setSaveError(
+        saveErrorMessage(e, '投稿できませんでした。通信のよいところで、もう一度「投稿する」を押してください（入力は消えません）。'),
+      );
       return;
     }
     clearDraft(DRAFT_KEY);
@@ -237,8 +242,10 @@ function PostForm() {
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="例：浅草・雷門"
+              maxLength={LIMITS.postTitle}
               className={FIELD}
             />
+            <CharLeft value={title} max={LIMITS.postTitle} />
           </div>
           <div>
             <label htmlFor="post-comment" className="mb-1 block text-sm font-semibold text-ink-soft">
@@ -250,8 +257,10 @@ function PostForm() {
               onChange={(e) => setComment(e.target.value)}
               rows={3}
               placeholder="どんな体験でしたか？"
+              maxLength={LIMITS.postComment}
               className={FIELD}
             />
+            <CharLeft value={comment} max={LIMITS.postComment} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -270,8 +279,10 @@ function PostForm() {
                 }}
                 enterKeyHint="search"
                 placeholder="例：雷門"
+                maxLength={LIMITS.postPlace}
                 className={FIELD}
               />
+              <CharLeft value={placeName} max={LIMITS.postPlace} />
             </div>
             <div>
               <label htmlFor="post-date" className="mb-1 block text-sm font-semibold text-ink-soft">

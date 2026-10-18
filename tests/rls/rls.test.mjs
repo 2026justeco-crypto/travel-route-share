@@ -6,7 +6,7 @@
 //   後片付け：各ユーザー自身が Storage API で自分の写真を消し、public.delete_my_data を呼ぶ（after の中）。
 //   結果は最後に「番号・項目・期待・結果」の表で出す。期待どおりでない項目は失敗として数える（直さない）。
 //
-//   回し方：npm run test:rls（匿名ログインを3回使う。Supabase の匿名ログインには IP ごとの回数制限がある）
+//   回し方：npm run test:rls（匿名ログインを4回使う。Supabase の匿名ログインには IP ごとの回数制限がある）
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -39,7 +39,7 @@ const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 16, 74, 70, 73, 70, 0, 1
 const jpeg = () => new Blob([JPEG], { type: 'image/jpeg' });
 
 // ---------- 人ごとのクライアント。届いた応答の本文を全部とっておく（漏れの検索用） ----------
-const seen = { A: [], B: [], C: [], anon: [] };
+const seen = { A: [], B: [], C: [], D: [], anon: [] };
 function client(who) {
   return createClient(SUPABASE_URL, SUPABASE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
@@ -57,9 +57,9 @@ function client(who) {
   });
 }
 
-const U = { A: null, B: null, C: null };
+const U = { A: null, B: null, C: null, D: null };
 const anon = client('anon');
-let A, B, C; // { c, id }
+let A, B, C, D; // { c, id }（D＝依頼16の上限の確認だけに使う）
 const ids = {}; // 作った行の id
 
 async function signIn(who) {
@@ -109,9 +109,11 @@ before(async () => {
   A = await signIn('A');
   B = await signIn('B');
   C = await signIn('C');
+  D = await signIn('D');
   U.A = A.id;
   U.B = B.id;
   U.C = C.id;
+  U.D = D.id;
 
   // A：自宅
   must(await A.c.from('profiles_private').insert({ id: A.id, home_lat: HOME.lat, home_lng: HOME.lng }), 'A 自宅');
@@ -214,10 +216,16 @@ check('R07', 'favorites：他人のお気に入りは読めない', 'B から C 
   assert.ok(r.error || r.data.length === 0, 'anon に見えた');
   return `anon: ${r.error ? r.error.code : r.data.length + '行'}`;
 });
-check('R08', 'profiles：表示名は誰でも読める（仕様）。全利用者の id が一覧できる', '仕様どおり読める（観察）', async () => {
-  const d = must(await anon.from('profiles').select('id,display_name,is_sample,name_asked,created_at').limit(1000), 'select');
+check('R08', 'profiles：読めるのは id と display_name だけ（依頼16で列の権限に変えた）', 'id・表示名は読める／created_at・name_asked・is_sample・* は止まる', async () => {
+  const d = must(await anon.from('profiles').select('id,display_name').limit(1000), 'select');
   assert.ok(d.some((r) => r.id === A.id));
-  return `anon が profiles を ${d.length} 行取得（作品が無い利用者の id・作成時刻も含む）`;
+  const notes = [];
+  for (const [n, c] of [['anon', anon], ['C', C.c]]) {
+    for (const col of ['created_at', 'name_asked', 'is_sample', '*']) {
+      notes.push(`${n}.${col}:` + (await mustError(c.from('profiles').select(col).eq('id', A.id), `${n} ${col} `)).split(' ')[1]);
+    }
+  }
+  return `id・表示名 ${d.length} 行 / ` + notes.join(' ');
 });
 
 // ======================================================================
@@ -692,12 +700,123 @@ check('M04', 'グループを続けて20個作る', '記録のみ', async () => 
 });
 
 // ======================================================================
+// 10. 量・回数の上限（依頼16・0008_seigen.sql / 0009_photo_quota.sql）。D（まっさらな人）で確かめる
+//     上限の数字は SQL の private.lim() と画面の src/lib/limits.ts。ここでは依頼文の数字で確かめる
+// ======================================================================
+const RATE = (kind, win = 'minute') => new RegExp(`trs_rate_limit:${win}:${kind}`);
+async function rateStopped(p, re) {
+  const { error } = await p;
+  if (!error) throw new Error('止まらなかった');
+  if (!re.test(error.message)) throw new Error(`別のエラー: ${error.code} ${error.message}`);
+  return error.message;
+}
+async function tooLong(p, label) {
+  const { error } = await p;
+  if (!error) throw new Error(`${label}：止まらなかった`);
+  if (error.code !== '23514') throw new Error(`${label}：別のエラー ${error.code} ${error.message}`);
+  return label;
+}
+const qIds = {};
+const aa = (n) => 'あ'.repeat(n);
+const qSpot = (i, name, memo) => ({ id: `s${i}`, name, memo, lat: 35, lng: 139, photoId: null });
+
+check('Q01', '旅行：1分に10件までは作れる・11件目は止まる・編集は数えない', '10件○・11件目＝trs_rate_limit:minute:trip・既存の upsert/update○', async () => {
+  for (let i = 0; i < 10; i++) {
+    const r = must(await D.c.from('trips').insert({ title: `rate-${i}`, visibility: 'private' }).select('id').single(), `${i + 1}件目`);
+    if (i === 0) qIds.trip = r.id;
+  }
+  const m = await rateStopped(D.c.from('trips').insert({ title: 'rate-11', visibility: 'private' }), RATE('trip'));
+  must(await D.c.from('trips').upsert({ id: qIds.trip, title: '編集した', visibility: 'private' }), '編集（upsert）');
+  must(await D.c.from('trips').update({ title: '編集2' }).eq('id', qIds.trip), '編集（update）');
+  return m;
+});
+check('Q02', '投稿：1分に10件まで・11件目は止まる', '10件○・11件目＝trs_rate_limit:minute:post', async () => {
+  for (let i = 0; i < 10; i++) {
+    const r = must(
+      await D.c.from('posts').insert({ title: `rate-${i}`, visibility: 'private', lat: 35, lng: 139 }).select('id').single(),
+      `${i + 1}件目`,
+    );
+    if (i === 0) qIds.post = r.id;
+  }
+  return rateStopped(D.c.from('posts').insert({ title: 'rate-11', visibility: 'private', lat: 35, lng: 139 }), RATE('post'));
+});
+check('Q03', 'グループ：10個までは作れる・11個目は止まる', '10個○・11個目＝trs_rate_limit（1日10個に先に当たる）', async () => {
+  for (let i = 0; i < 10; i++) must(await D.c.rpc('create_group', { p_name: `rate${i}`, p_color: '#123456' }), `${i + 1}個目`);
+  return rateStopped(D.c.rpc('create_group', { p_name: 'rate11', p_color: '#123456' }), /trs_rate_limit:(day|minute):group/);
+});
+check('Q04', '写真：1分に10枚まで・11枚目は止まる・理由は my_photo_limit で分かる', '10枚○・11枚目×・my_photo_limit=minute・anon は呼べない', async () => {
+  for (let i = 0; i < 10; i++) {
+    must(await bucket(D.c).upload(`${D.id}/rate-${i}.jpg`, jpeg(), { contentType: 'image/jpeg' }), `${i + 1}枚目`);
+  }
+  const n = await mustError(bucket(D.c).upload(`${D.id}/rate-11.jpg`, jpeg(), { contentType: 'image/jpeg' }), '11枚目 ');
+  const why = must(await D.c.rpc('my_photo_limit'), 'my_photo_limit');
+  assert.equal(why, 'minute');
+  const anonWhy = await mustError(anon.rpc('my_photo_limit'), 'anon ');
+  return `${n} / my_photo_limit=${why} / anon: ${anonWhy.split(' ')[1]}`;
+});
+check('Q05', '長さ：上限ちょうどは通る（編集で確かめる＝回数に数えない）', '題名100字・コメント2000字・場所200字・スポット60個・名前100字・メモ1000字・約94KB○', async () => {
+  must(await D.c.from('trips').update({ title: aa(100) }).eq('id', qIds.trip).select('id').single(), '旅行の題名100字');
+  must(
+    await D.c.from('posts').update({ title: aa(100), comment: aa(2000), place: aa(200) }).eq('id', qIds.post).select('id').single(),
+    '投稿100/2000/200',
+  );
+  must(
+    await D.c.from('trips').update({ spots: Array.from({ length: 60 }, (_, i) => qSpot(i, `x${i}`, '')) }).eq('id', qIds.trip).select('id').single(),
+    'スポット60個',
+  );
+  must(await D.c.from('trips').update({ spots: [qSpot(0, aa(100), aa(1000))] }).eq('id', qIds.trip).select('id').single(), '名前100字・メモ1000字');
+  must(
+    await D.c.from('trips').update({ spots: Array.from({ length: 30 }, (_, i) => qSpot(i, `x${i}`, aa(1000))) }).eq('id', qIds.trip).select('id').single(),
+    'メモ1000字×30（約94KB）',
+  );
+  return 'すべて通った';
+});
+check('Q06', '長さ：上限を1つ超えると止まる（insert・update とも。回数の上限より先に check 制約で止まる）', 'どれも 23514', async () => {
+  const notes = [];
+  notes.push(await tooLong(D.c.from('trips').insert({ title: aa(101) }), '旅行の題名101字（insert）'));
+  notes.push(await tooLong(D.c.from('trips').update({ title: aa(101) }).eq('id', qIds.trip), '旅行の題名101字（update）'));
+  notes.push(await tooLong(D.c.from('posts').insert({ title: aa(101), lat: 1, lng: 1 }), '投稿の題名101字'));
+  notes.push(await tooLong(D.c.from('posts').update({ comment: aa(2001) }).eq('id', qIds.post), 'コメント2001字'));
+  notes.push(await tooLong(D.c.from('posts').update({ place: aa(201) }).eq('id', qIds.post), '場所201字'));
+  notes.push(
+    await tooLong(D.c.from('trips').update({ spots: Array.from({ length: 61 }, (_, i) => qSpot(i, `x${i}`, '')) }).eq('id', qIds.trip), 'スポット61個'),
+  );
+  notes.push(await tooLong(D.c.from('trips').update({ spots: [qSpot(0, aa(101), '')] }).eq('id', qIds.trip), 'スポット名101字'));
+  notes.push(await tooLong(D.c.from('trips').update({ spots: [qSpot(0, 'x', aa(1001))] }).eq('id', qIds.trip), 'メモ1001字'));
+  notes.push(
+    await tooLong(
+      D.c.from('trips').update({ spots: Array.from({ length: 40 }, (_, i) => qSpot(i, `x${i}`, aa(1000))) }).eq('id', qIds.trip),
+      'スポット全体 約125KB',
+    ),
+  );
+  notes.push(await tooLong(D.c.from('profiles').update({ display_name: aa(31) }).eq('id', D.id), '表示名31字'));
+  // 長すぎるものは保存されていない
+  const t = must(await D.c.from('trips').select('title').eq('id', qIds.trip).single(), 'D');
+  assert.equal(t.title.length, 100);
+  return notes.join('・');
+});
+check('Q07', 'my_profile：自分の行だけ・anon は呼べない', 'D＝自分の1行（name_asked あり）／anon＝止まる', async () => {
+  const d = must(await D.c.rpc('my_profile'), 'D');
+  assert.equal(d.length, 1);
+  assert.equal(d[0].id, D.id);
+  assert.equal(typeof d[0].name_asked, 'boolean');
+  const n = await mustError(anon.rpc('my_profile'), 'anon ');
+  return `D: ${d.length}行 / anon: ${n.split(' ')[1]}`;
+});
+check('Q08', '回数の記録（private.rate_events）は API から読めない', 'D・anon とも止まる', async () => {
+  const notes = [];
+  notes.push(await mustError(D.c.schema('private').from('rate_events').select('*'), 'D '));
+  notes.push(await mustError(anon.schema('private').from('rate_events').select('*'), 'anon '));
+  return notes.join(' / ');
+});
+
+// ======================================================================
 // 後片付け：各ユーザーが自分で（写真を Storage API で消す → delete_my_data）
 // ======================================================================
 const cleanup = [];
 after(async () => {
-  for (const who of ['B', 'C', 'A']) {
-    const u = { A, B, C }[who];
+  for (const who of ['B', 'C', 'D', 'A']) {
+    const u = { A, B, C, D }[who];
     if (!u) continue;
     try {
       let removed = 0;

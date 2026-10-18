@@ -10,6 +10,7 @@
 
 import { photoDelete, photoGetMany } from './idb';
 import { ensureSession, supabase } from './supabase';
+import { LimitError, photoLimitHit } from './limits';
 
 export const PHOTO_BUCKET = 'photos';
 /** 長い辺の上限 */
@@ -124,7 +125,12 @@ export async function uploadPhoto(src: Blob | string, opts: { shrunk?: boolean }
   const { error } = await supabase()
     .storage.from(PHOTO_BUCKET)
     .upload(path, blob, { contentType: 'image/jpeg', upsert: false, cacheControl: '3600' });
-  if (error) throw error;
+  if (error) {
+    // 枚数の上限（依頼16）に当たると Storage は「権限がない」としか返さないので、理由をサーバーに聞いて分かる言葉にする
+    const hit = await photoLimitHit();
+    if (hit) throw new LimitError(hit, 'photo');
+    throw error;
+  }
   return path;
 }
 

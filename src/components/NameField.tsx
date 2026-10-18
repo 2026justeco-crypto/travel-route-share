@@ -5,8 +5,10 @@
 //   1回聞いたら（profiles.name_asked）、次からは出さない。
 import { useEffect, useState } from 'react';
 import { displayNameToAsk } from '@/lib/groups';
+import { LIMITS } from '@/lib/limits';
+import CharLeft from '@/components/CharLeft';
 
-const MAX = 30;
+const MAX = LIMITS.displayName;
 
 /** 聞く必要があるか（undefined＝確かめ中）と、入力中の名前 */
 export function useNameAsk() {
@@ -43,6 +45,7 @@ export default function NameField({ name, setName }: { name: string; setName: (v
         autoComplete="off"
         className="w-full min-h-11 rounded-xl border border-line-soft bg-surface px-3 py-2 text-base text-ink outline-none focus:border-blue-400"
       />
+      <CharLeft value={name} max={MAX} />
       <p className="mt-1 text-xs text-muted">本名でなくてかまいません。聞くのはこの1回だけです。</p>
     </div>
   );

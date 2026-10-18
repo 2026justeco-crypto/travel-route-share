@@ -38,6 +38,8 @@ import type { RoutePoint } from '@/components/JapanMap';
 import ShareToPicker, { ShareIcon, shareLabel, type ShareValue } from '@/components/ShareToPicker';
 import HomeNotice from '@/components/HomeNotice';
 import { checkBeforeSave, markHomeHintDone, type SaveCheck } from '@/lib/home';
+import { LIMITS, clip, jsonBytes, saveErrorMessage } from '@/lib/limits';
+import CharLeft from '@/components/CharLeft';
 
 interface SpotSearch {
   spotId: string;
@@ -230,6 +232,7 @@ export default function TripForm({ initial, initialStatus, initialGroupIds }: Pr
     setSpots((ss) => ss.map((s) => (s.id === id ? { ...s, ...patch } : s)));
 
   const addSpot = () => {
+    if (spots.length >= LIMITS.tripSpots) return;
     const s = emptySpot();
     setSpots((ss) => {
       // 新しくできる区間（今の最後 → 新しいスポット）は、直前の区間と同じ手段を初期値にする（未設定なら未設定のまま）
@@ -373,9 +376,11 @@ export default function TripForm({ initial, initialStatus, initialGroupIds }: Pr
       userId: initial?.userId ?? '',
       userName: initial?.userName ?? ME_NAME,
       // 名前が空なら、入力したスポット名か日付から自動で付ける
-      title:
+      title: clip(
         title.trim() ||
-        (firstTyped ? `${firstTyped}の旅` : `${startDate.replaceAll('-', '/')}の${status === 'done' ? '思い出' : '旅'}`),
+          (firstTyped ? `${firstTyped}の旅` : `${startDate.replaceAll('-', '/')}の${status === 'done' ? '思い出' : '旅'}`),
+        LIMITS.tripTitle,
+      ),
       startDate,
       endDate: endDate || startDate,
       status,
@@ -389,6 +394,12 @@ export default function TripForm({ initial, initialStatus, initialGroupIds }: Pr
       createdAt: initial?.createdAt ?? new Date().toISOString(),
       visibility,
     };
+    // スポット全体の大きさの上限（サーバーと同じ数え方。超えたらサーバーへ送らずに知らせる）
+    if (jsonBytes(trip.spots) > LIMITS.tripSpotsBytes) {
+      setSaving(false);
+      setSaveError('メモが全体で長すぎます（スポット全部で約100KBまで）。メモを短くしてから保存してください（入力は消えません）。');
+      return;
+    }
     // 端末にある写真（今回選んだもの）を先にサーバーへ置く。保存に失敗したら置いた写真は消す
     let uploaded: string[] = [];
     try {
@@ -408,11 +419,13 @@ export default function TripForm({ initial, initialStatus, initialGroupIds }: Pr
       }
       void sweepOrphanPhotos();
       router.push(`/trips/view?id=${saved.id}`);
-    } catch {
+    } catch (e) {
       if (uploaded.length) void removePhotos(uploaded);
-      // 下書きは残っているので、入力は消えない
+      // 下書きは残っているので、入力は消えない。上限（回数・長さ）に当たったときは、その言葉を出す
       setSaving(false);
-      setSaveError('保存できませんでした。通信のよいところで、もう一度「保存」を押してください（入力は消えません）。');
+      setSaveError(
+        saveErrorMessage(e, '保存できませんでした。通信のよいところで、もう一度「保存」を押してください（入力は消えません）。'),
+      );
     }
   };
 
@@ -439,8 +452,10 @@ export default function TripForm({ initial, initialStatus, initialGroupIds }: Pr
               onChange={(e) => setTitle(e.target.value)}
               placeholder="例：東京1泊2日 下町めぐり"
               enterKeyHint="next"
+              maxLength={LIMITS.tripTitle}
               className={FIELD}
             />
+            <CharLeft value={title} max={LIMITS.tripTitle} />
           </div>
           {/* 日付：帰る日は日帰りなら要らないので、押したときだけ出す */}
           <div className="grid grid-cols-2 gap-3">
@@ -547,6 +562,7 @@ export default function TripForm({ initial, initialStatus, initialGroupIds }: Pr
                       enterKeyHint="search"
                       aria-label={`${i + 1}番目のスポット名`}
                       placeholder="スポット名（例：東京駅）"
+                      maxLength={LIMITS.spotName}
                       className={`${FIELD} min-w-0`}
                     />
                     {spots.length > 1 && (
@@ -580,14 +596,17 @@ export default function TripForm({ initial, initialStatus, initialGroupIds }: Pr
                       </>
                     )}
                   </div>
+                  <CharLeft value={s.name} max={LIMITS.spotName} />
                   <textarea
                     value={s.memo}
                     onChange={(e) => updateSpot(s.id, { memo: e.target.value })}
                     rows={2}
                     aria-label="メモ"
                     placeholder="メモ（予定・感想など）"
+                    maxLength={LIMITS.spotMemo}
                     className={`${FIELD} mt-2`}
                   />
+                  <CharLeft value={s.memo} max={LIMITS.spotMemo} />
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     {omoide && photoBtn}
                     <button
@@ -656,13 +675,19 @@ export default function TripForm({ initial, initialStatus, initialGroupIds }: Pr
               </div>
             );
           })}
-          <button
-            type="button"
-            onClick={addSpot}
-            className="min-h-12 w-full rounded-xl border-2 border-dashed border-blue-300 bg-tint/50 py-3 text-base font-semibold text-link hover:bg-tint"
-          >
-            ＋ スポットを追加
-          </button>
+          {spots.length < LIMITS.tripSpots ? (
+            <button
+              type="button"
+              onClick={addSpot}
+              className="min-h-12 w-full rounded-xl border-2 border-dashed border-blue-300 bg-tint/50 py-3 text-base font-semibold text-link hover:bg-tint"
+            >
+              ＋ スポットを追加
+            </button>
+          ) : (
+            <p className="rounded-xl bg-surface-2 px-3 py-3 text-center text-sm text-muted">
+              スポットは1つの旅行に{LIMITS.tripSpots}個までです。続きは別の旅行にしてください。
+            </p>
+          )}
         </div>
 
         {/* 見せる先（依頼10）：全体／自分だけ */}

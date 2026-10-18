@@ -12,6 +12,7 @@
 import type { Group, GroupMember, Visibility } from './types';
 import { ensureSession, myUserId, supabase } from './supabase';
 import { isServerId } from './store';
+import { LIMITS, clip } from './limits';
 
 /** 目印の色（A のポップな色。B でも見分けやすい明るさ） */
 export const GROUP_COLORS = ['#0f8fdc', '#ff5c8a', '#ffb020', '#1fb57a', '#8b5cf6', '#ef4444'] as const;
@@ -141,9 +142,10 @@ export function isOwner(g: { ownerId: string }): boolean {
 export async function displayNameToAsk(): Promise<string | null> {
   const me = await ensureSession();
   if (!me) return null;
-  const { data, error } = await supabase().from('profiles').select('display_name, name_asked').eq('id', me).maybeSingle();
-  if (error || !data) return null;
-  const row = data as { display_name: string; name_asked: boolean };
+  // profiles の表から読めるのは id と表示名だけ（依頼16・列の権限）。自分の name_asked は my_profile() で読む
+  const { data, error } = await supabase().rpc('my_profile');
+  const row = (data as { display_name: string; name_asked: boolean }[] | null)?.[0];
+  if (error || !row) return null;
   if (row.name_asked) return null;
   const n = new Uint16Array(1);
   crypto.getRandomValues(n);
@@ -156,7 +158,7 @@ export async function displayNameToAsk(): Promise<string | null> {
 export async function createGroup(name: string, color: string, displayName?: string | null): Promise<string> {
   await needUser();
   const { data, error } = await supabase().rpc('create_group', {
-    p_name: name.trim().slice(0, 30),
+    p_name: clip(name.trim(), LIMITS.groupName),
     p_color: color,
     p_display_name: displayName ?? null,
   });

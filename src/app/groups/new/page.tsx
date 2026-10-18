@@ -8,8 +8,10 @@ import { GROUP_COLORS, createGroup } from '@/lib/groups';
 import { markReplace } from '@/lib/navTrail';
 import { GroupIcon } from '@/components/icons';
 import NameField, { useNameAsk } from '@/components/NameField';
+import CharLeft from '@/components/CharLeft';
+import { LIMITS, saveErrorMessage } from '@/lib/limits';
 
-const MAX_NAME = 30;
+const MAX_NAME = LIMITS.groupName;
 
 export default function NewGroupPage() {
   const router = useRouter();
@@ -30,9 +32,10 @@ export default function NewGroupPage() {
       // 作成画面は履歴に残さない（グループのページから「戻る」で作成画面に戻らないように）
       markReplace();
       router.replace(`/groups/view?id=${id}&created=1`);
-    } catch {
+    } catch (e) {
       setSaving(false);
-      setError('つくれませんでした。通信のよいところで、もう一度押してください。');
+      // 上限（1日10個・1分10個）に当たったときは、その言葉を出す
+      setError(saveErrorMessage(e, 'つくれませんでした。通信のよいところで、もう一度押してください。'));
     }
   };
 
@@ -65,6 +68,7 @@ export default function NewGroupPage() {
           autoComplete="off"
           className="w-full min-h-11 rounded-xl border border-line-soft bg-surface px-3 py-2 text-base text-ink outline-none focus:border-blue-400"
         />
+        <CharLeft value={name} max={MAX_NAME} />
       </div>
 
       <fieldset>
