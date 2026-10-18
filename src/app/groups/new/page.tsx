@@ -1,12 +1,13 @@
 'use client';
 
-// グループをつくる（依頼9）。名前と色だけ。作ったらそのグループのページで招待リンクを出す。
+// グループをつくる（依頼9で試作・依頼12でサーバー版）。名前と色だけ（初めてなら表示名も1回だけ聞く）。
+// 作ったらそのグループのページで招待リンクを出す。
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { GROUP_COLORS, createGroup } from '@/lib/groups';
 import { markReplace } from '@/lib/navTrail';
 import { GroupIcon } from '@/components/icons';
-import DemoNote from '@/components/DemoNote';
+import NameField, { useNameAsk } from '@/components/NameField';
 
 const MAX_NAME = 30;
 
@@ -15,16 +16,24 @@ export default function NewGroupPage() {
   const [name, setName] = useState('');
   const [color, setColor] = useState<string>(GROUP_COLORS[0]);
   const [saving, setSaving] = useState(false);
-  const ok = name.trim().length > 0;
+  const [error, setError] = useState('');
+  const me = useNameAsk();
+  const ok = name.trim().length > 0 && me.ask !== undefined && (!me.ask || !!me.value);
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!ok || saving) return;
     setSaving(true);
-    const g = createGroup(name.slice(0, MAX_NAME), color);
-    // 作成画面は履歴に残さない（グループのページから「戻る」で作成画面に戻らないように）
-    markReplace();
-    router.replace(`/groups/view?id=${g.id}&created=1`);
+    setError('');
+    try {
+      const id = await createGroup(name.slice(0, MAX_NAME), color, me.value);
+      // 作成画面は履歴に残さない（グループのページから「戻る」で作成画面に戻らないように）
+      markReplace();
+      router.replace(`/groups/view?id=${id}&created=1`);
+    } catch {
+      setSaving(false);
+      setError('つくれませんでした。通信のよいところで、もう一度押してください。');
+    }
   };
 
   return (
@@ -78,10 +87,16 @@ export default function NewGroupPage() {
         </div>
       </fieldset>
 
+      {me.ask && <NameField name={me.name} setName={me.setName} />}
+
       <button type="submit" disabled={!ok || saving} className="t-btn t-btn-primary w-full disabled:opacity-50">
         {saving ? 'つくっています…' : 'つくって招待リンクを出す'}
       </button>
-      <DemoNote />
+      {error && (
+        <p role="alert" className="text-center text-sm font-bold text-red-500">
+          {error}
+        </p>
+      )}
     </form>
   );
 }

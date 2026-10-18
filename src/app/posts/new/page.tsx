@@ -5,14 +5,16 @@ import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { extractGps, fileToDataUrl } from '@/lib/exif';
 import { nearestPrefecture } from '@/lib/regions';
-import { savePost, ME_NAME, loadDraft, saveDraft, clearDraft } from '@/lib/store';
+import { savePost, newId, ME_NAME, loadDraft, saveDraft, clearDraft } from '@/lib/store';
+import { myGroups, syncShares, type GroupBrief } from '@/lib/groups';
+import type { Visibility } from '@/lib/types';
 import { photoDelete, photoGet, photoPut } from '@/lib/idb';
 import { removePhotos, uploadPhoto } from '@/lib/photos';
 import { searchPlaces, shortLabel, type PlaceHit } from '@/lib/geocode';
-import { CameraIcon, GlobeIcon, LockIcon, PinIcon, SearchIcon } from '@/components/icons';
+import { CameraIcon, PinIcon, SearchIcon } from '@/components/icons';
 import { PageSkeleton } from '@/components/Skeleton';
 import { useMounted } from '@/lib/useMounted';
-import ShareToPicker, { type PickVisibility } from '@/components/ShareToPicker';
+import ShareToPicker, { ShareIcon, shareLabel, type ShareValue } from '@/components/ShareToPicker';
 
 const MAP_HEIGHT = 'min(48vh, 360px)';
 
@@ -32,7 +34,8 @@ interface PostDraft {
   date: string;
   pos: { lat: number; lng: number } | null;
   hasPhoto: boolean;
-  visibility?: PickVisibility; // 見せる先（依頼10）。古い下書きには無い
+  visibility?: Visibility; // 見せる先（依頼10）。古い下書きには無い
+  shareGroupIds?: string[]; // 見せるグループ（依頼12）
 }
 
 const FIELD =
@@ -51,12 +54,40 @@ function PostForm() {
   const [message, setMessage] = useState(
     draft ? '前回の入力の続きです。' : '写真に位置が入っていれば、場所は自動で入ります。',
   );
-  // 見せる先：既定は「全体」（シアン判断）
-  const [visibility, setVisibility] = useState<PickVisibility>(() => draft?.visibility ?? 'public');
+  // 見せる先：既定は「全体」（シアン判断）。グループ（複数可）を選ぶと visibility=groups
+  const [share, setShare] = useState<ShareValue>(() =>
+    draft?.visibility
+      ? { visibility: draft.visibility, groupIds: draft.visibility === 'groups' ? (draft.shareGroupIds ?? []) : [] }
+      : { visibility: 'public', groupIds: [] },
+  );
+  const visibility = share.visibility;
+  const [groups, setGroups] = useState<GroupBrief[] | null>(null);
+  // 投稿の id は最初に決めておく（途中で失敗してやり直しても、2つできないように）
+  const [postId] = useState(() => newId());
   const [saveError, setSaveError] = useState('');
   const [saving, setSaving] = useState(false);
   const [searchBusy, setSearchBusy] = useState(false);
   const [hits, setHits] = useState<PlaceHit[] | null>(null);
+
+  // 入っているグループを読む（抜けたグループの id は選択から外す）
+  useEffect(() => {
+    let alive = true;
+    myGroups()
+      .then((gs) => {
+        if (!alive) return;
+        setGroups(gs);
+        const ids = gs.map((g) => g.id);
+        setShare((cur) => {
+          if (cur.visibility !== 'groups') return cur;
+          const keep = cur.groupIds.filter((g) => ids.includes(g));
+          return keep.length ? { ...cur, groupIds: keep } : { visibility: 'private', groupIds: [] };
+        });
+      })
+      .catch(() => alive && setGroups([]));
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // 下書きの写真を戻す
   useEffect(() => {
@@ -76,8 +107,9 @@ function PostForm() {
         pos,
         hasPhoto: !!photoDataUrl,
         visibility,
+        shareGroupIds: share.groupIds,
       } satisfies PostDraft);
-  }, [title, comment, placeName, date, pos, photoDataUrl, visibility]);
+  }, [title, comment, placeName, date, pos, photoDataUrl, visibility, share.groupIds]);
 
   const doSearch = async () => {
     const q = (placeName || title).trim();
@@ -122,12 +154,13 @@ function PostForm() {
     setSaving(true);
     setSaveError('');
     let photoId: string | null = null;
+    let posted = false;
     const pref = nearestPrefecture(pos.lat, pos.lng);
     try {
       // 写真（選んだ時に縮小ずみ・EXIFなし）を先にサーバーへ置き、そのパスを投稿に付ける
       if (photoDataUrl) photoId = await uploadPhoto(photoDataUrl, { shrunk: true });
-      await savePost({
-        id: '',
+      const saved = await savePost({
+        id: postId,
         userId: '',
         userName: ME_NAME,
         title: title.trim(),
@@ -142,9 +175,13 @@ function PostForm() {
         createdAt: new Date().toISOString(),
         visibility,
       });
+      posted = true;
+      // 見せる先のグループを付ける
+      await syncShares('post', saved.id, visibility, share.groupIds);
     } catch {
       // 投稿できなかったら、置いた写真は消す（入力と下書きの写真は残す）
-      if (photoId) void removePhotos([photoId]);
+      // （投稿まで済んでいたら写真は投稿に付いているので消さない。やり直すと同じ投稿を上書きする）
+      if (photoId && !posted) void removePhotos([photoId]);
       setSaving(false);
       setSaveError('投稿できませんでした。通信のよいところで、もう一度「投稿する」を押してください（入力は消えません）。');
       return;
@@ -228,9 +265,9 @@ function PostForm() {
               />
             </div>
           </div>
-          {/* 見せる先（依頼10）：全体／自分だけ */}
+          {/* 見せる先（依頼10・12）：全体／グループ（複数可）／自分だけ */}
           <div id="post-visibility">
-            <ShareToPicker value={visibility} onChange={setVisibility} />
+            <ShareToPicker value={share} onChange={setShare} groups={groups} />
           </div>
         </div>
 
@@ -293,8 +330,8 @@ function PostForm() {
           }}
           className="mt-1 flex min-h-9 items-center justify-center gap-1 text-sm font-bold text-ink-soft md:justify-start"
         >
-          {visibility === 'public' ? <GlobeIcon className="h-4 w-4" /> : <LockIcon className="h-4 w-4" />}
-          見せる先：{visibility === 'public' ? '全体' : '自分だけ'}
+          <ShareIcon visibility={visibility} />
+          <span className="max-w-[16rem] truncate">見せる先：{shareLabel(share, groups)}</span>
           <span className="text-link underline">変える</span>
         </a>
         {saveError && (

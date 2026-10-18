@@ -36,7 +36,7 @@ export interface Post {
   region: Region;
   photoId: string | null;
   createdAt: string; // ISO
-  /** 見せる先のグループ（依頼9）。無い・空＝自分だけ（古いデータもこの扱い） */
+  /** 見せる先のグループ（依頼9の試作の形。端末に残った古いデータだけが持つ。サーバー版は trip_groups / post_groups） */
   groupIds?: string[];
   /** 見せる先（依頼10・サーバーのデータだけが持つ） */
   visibility?: Visibility;
@@ -70,7 +70,7 @@ export interface Trip {
   status: TripStatus;
   spots: TripSpot[];
   createdAt: string; // ISO
-  /** 見せる先のグループ（依頼9）。無い・空＝自分だけ（古いデータもこの扱い） */
+  /** 見せる先のグループ（依頼9の試作の形。端末に残った古いデータだけが持つ。サーバー版は trip_groups / post_groups） */
   groupIds?: string[];
   /** 見せる先（依頼10・サーバーのデータだけが持つ） */
   visibility?: Visibility;
@@ -78,12 +78,13 @@ export interface Trip {
   isSample?: boolean;
 }
 
-// ---------- グループ（依頼9・試作：この端末の中だけ） ----------
+// ---------- グループ（依頼9で試作・依頼12でサーバー版） ----------
 
 export interface GroupMember {
   id: string;
   name: string;
   joinedAt: string; // ISO
+  role: 'owner' | 'member';
 }
 
 export interface Group {

@@ -1,8 +1,7 @@
 // この端末（localStorage）に置いた旅行・投稿（MVP〜依頼9の形）。
 //   β版（依頼10）で本体のデータはサーバー（Supabase・lib/store.ts）へ移った。ここに残るのは
 //   ①サーバーへ引っ越す前の古いデータの読み出し（lib/migrate.ts）
-//   ②グループの試作（lib/groups.ts・依頼12でサーバー版にする）の見本データ
-//   だけ。新しく作る旅行・投稿はここには書かない。
+//   だけ（グループの試作の見本は依頼12で片付けた＝lib/groups.ts の forgetGroupPrototype）。新しく作る旅行・投稿はここには書かない。
 
 import type { Post, Trip } from './types';
 

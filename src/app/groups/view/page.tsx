@@ -1,28 +1,18 @@
 'use client';
 
-// グループのページ（依頼9）：/groups/view?id=…
+// グループのページ（依頼9で試作・依頼12でサーバー版）：/groups/view?id=…
 //   そのグループに見せた旅行・写真を、地図（A＝タイル地図／くわしい地図、B＝地球儀の地図。トップと同じ部品）と一覧で見る。
 //   メンバー一覧・招待リンク（コピー・作り直し）・抜ける（作った人は消す）。
-//   メンバーでない人には中身を出さない。
+//   メンバーでない人には中身を出さない（守りは RLS。メンバーでなければグループも旅行も返ってこない）。
 //   ★確認は window.confirm を使わず、その場で「本当に？」のボタンを出す（2回押し）。
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { Group, Post, Trip } from '@/lib/types';
-import {
-  deleteGroup,
-  getGroup,
-  groupPosts,
-  groupTrips,
-  inviteUrl,
-  isMember,
-  isOwner,
-  leaveGroup,
-  regenerateInvite,
-  seedAll,
-} from '@/lib/groups';
-import { LOCAL_USER as CURRENT_USER } from '@/lib/localStore';
+import { deleteGroup, getGroup, inviteUrl, isOwner, leaveGroup, regenerateInvite } from '@/lib/groups';
+import { listGroupPosts, listGroupTrips } from '@/lib/store';
+import { useAuth } from '@/lib/supabase';
 import { photoUrls } from '@/lib/photos';
 import { markReplace } from '@/lib/navTrail';
 import { useTheme } from '@/lib/useTheme';
@@ -30,7 +20,6 @@ import type { MapPin } from '@/components/JapanMap';
 import TopTileMap from '@/components/TopTileMap';
 import { BookIcon, GroupIcon, LinkIcon, RouteIcon } from '@/components/icons';
 import { PageSkeleton } from '@/components/Skeleton';
-import DemoNote from '@/components/DemoNote';
 
 const JapanMap = dynamic(() => import('@/components/JapanMap'), {
   ssr: false,
@@ -40,10 +29,19 @@ const JapanMap = dynamic(() => import('@/components/JapanMap'), {
 const SMALL_BTN =
   'inline-flex min-h-11 items-center justify-center gap-1.5 rounded-full border-2 px-4 text-sm font-bold transition';
 
-function InvitePanel({ group, onRegenerated, highlight }: { group: Group; onRegenerated: () => void; highlight: boolean }) {
+function InvitePanel({
+  group,
+  onRegenerated,
+  highlight,
+}: {
+  group: Group;
+  onRegenerated: (code: string) => void;
+  highlight: boolean;
+}) {
   const url = inviteUrl(group.inviteCode);
   const [copied, setCopied] = useState(false);
   const [confirmRegen, setConfirmRegen] = useState(false);
+  const [regenError, setRegenError] = useState('');
 
   const copy = async () => {
     try {
@@ -90,11 +88,16 @@ function InvitePanel({ group, onRegenerated, highlight }: { group: Group; onRege
             <span className="text-ink">今のリンクは使えなくなります。</span>
             <button
               type="button"
-              onClick={() => {
-                regenerateInvite(group.id);
-                setConfirmRegen(false);
-                setCopied(false);
-                onRegenerated();
+              onClick={async () => {
+                setRegenError('');
+                try {
+                  const code = await regenerateInvite(group.id);
+                  setConfirmRegen(false);
+                  setCopied(false);
+                  onRegenerated(code);
+                } catch {
+                  setRegenError('作り直せませんでした。もう一度押してください。');
+                }
               }}
               className={`${SMALL_BTN} border-red-300 text-red-500`}
             >
@@ -113,6 +116,11 @@ function InvitePanel({ group, onRegenerated, highlight }: { group: Group; onRege
             リンクを作り直す（古いリンクを使えなくする）
           </button>
         ))}
+      {regenError && (
+        <p role="alert" className="text-sm font-bold text-red-500">
+          {regenError}
+        </p>
+      )}
     </section>
   );
 }
@@ -126,28 +134,38 @@ function GroupDetail({ id, created }: { id: string; created: boolean }) {
   const [posts, setPosts] = useState<Post[]>([]);
   const [photos, setPhotos] = useState<Map<string, string>>(new Map());
   const [left, setLeft] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const [confirmOut, setConfirmOut] = useState(false);
+  const [outError, setOutError] = useState('');
   const [flashId, setFlashId] = useState<string | null>(null);
-
-  const reload = () => {
-    setGroup(getGroup(id) ?? null);
-    setTrips(groupTrips(id));
-    setPosts(groupPosts(id));
-  };
+  const me = useAuth().userId;
 
   useEffect(() => {
+    let alive = true;
     (async () => {
-      await seedAll();
-      const ts = groupTrips(id);
-      const ps = groupPosts(id);
-      setGroup(getGroup(id) ?? null);
-      setTrips(ts);
-      setPosts(ps);
-      const ids = [...ps.map((p) => p.photoId), ...ts.flatMap((t) => t.spots.map((s) => s.photoId))].filter(
-        (x): x is string => !!x,
-      );
-      if (ids.length) setPhotos(await photoUrls(ids));
+      try {
+        // メンバーでなければ、グループも旅行・写真も RLS で返ってこない
+        const [g, ts, ps] = await Promise.all([getGroup(id), listGroupTrips(id), listGroupPosts(id)]);
+        if (!alive) return;
+        setGroup(g);
+        setTrips(ts);
+        setPosts(ps);
+        const ids = [...ps.map((p) => p.photoId), ...ts.flatMap((t) => t.spots.map((s) => s.photoId))].filter(
+          (x): x is string => !!x,
+        );
+        if (ids.length) {
+          const ph = await photoUrls(ids);
+          if (alive) setPhotos(ph);
+        }
+      } catch {
+        if (!alive) return;
+        setLoadError(true);
+        setGroup(null);
+      }
     })();
+    return () => {
+      alive = false;
+    };
   }, [id]);
 
   const pins: MapPin[] = useMemo(() => {
@@ -160,7 +178,7 @@ function GroupDetail({ id, created }: { id: string; created: boolean }) {
       userName: p.userName,
       photoUrl: p.photoId ? (photos.get(p.photoId) ?? null) : null,
       date: p.date,
-      isMine: p.userId === CURRENT_USER.id,
+      isMine: p.userId === me,
     }));
     // 旅行は最初に位置が入っているスポットに1本だけ立てる
     const fromTrips = trips.flatMap((t) => {
@@ -176,34 +194,36 @@ function GroupDetail({ id, created }: { id: string; created: boolean }) {
           userName: t.userName,
           photoUrl: null,
           date: t.startDate,
-          isMine: t.userId === CURRENT_USER.id,
+          isMine: t.userId === me,
         },
       ];
     });
     return [...fromTrips, ...fromPosts];
-  }, [posts, trips, photos]);
+  }, [posts, trips, photos, me]);
 
   if (group === undefined) return <PageSkeleton />;
 
-  if (group === null)
+  if (loadError)
     return (
       <div className="space-y-4 text-center">
-        <p className="text-lg font-extrabold text-ink">グループが見つかりません</p>
-        <p className="text-sm text-muted">消されたか、この端末には無いグループです。</p>
+        <p className="text-lg font-extrabold text-ink">グループを読み込めませんでした</p>
+        <p className="text-sm text-muted">通信のよいところで、開き直してください。</p>
         <Link href="/groups" className="t-btn t-btn-secondary w-full">
           グループの一覧へ
         </Link>
       </div>
     );
 
-  // メンバーでない人には中身を出さない
-  if (!isMember(group))
+  // メンバーでない人・無いグループ：どちらも同じ画面（グループがあるかどうかも分からないように）
+  if (group === null)
     return (
       <div className="space-y-4 text-center">
         <p className="text-lg font-extrabold text-ink">{left ? 'グループを抜けました' : 'このグループのメンバーではありません'}</p>
         <p className="text-sm text-muted">
           グループの旅行と写真は、メンバーだけが見られます。入るには、メンバーから招待リンクをもらってください。
-          {left ? 'あなたがこのグループに見せていた旅行と写真は、グループから外しました（あなたの手元には残っています）。' : ''}
+          {left
+            ? 'あなたがこのグループに見せていた旅行と写真は、グループに残っています。見せたくなければ、その旅行の「編集」で見せる先を変えるか、消してください。'
+            : ''}
         </p>
         <Link href="/groups" className="t-btn t-btn-secondary w-full">
           グループの一覧へ
@@ -212,18 +232,27 @@ function GroupDetail({ id, created }: { id: string; created: boolean }) {
     );
 
   const owner = isOwner(group);
+  const onRegenerated = (code: string) => setGroup({ ...group, inviteCode: code });
 
-  const leaveOrDelete = () => {
-    if (owner) {
-      deleteGroup(group.id);
-      markReplace();
-      router.replace('/groups');
-      return;
+  const leaveOrDelete = async () => {
+    setOutError('');
+    try {
+      if (owner) {
+        if (!(await deleteGroup(group.id))) throw new Error('not deleted');
+        markReplace();
+        router.replace('/groups');
+        return;
+      }
+      if (!(await leaveGroup(group.id))) throw new Error('not left');
+      setLeft(true);
+      setConfirmOut(false);
+      setGroup(null);
+      setTrips([]);
+      setPosts([]);
+      setPhotos(new Map());
+    } catch {
+      setOutError(owner ? '消せませんでした。もう一度押してください。' : '抜けられませんでした。もう一度押してください。');
     }
-    leaveGroup(group.id);
-    setLeft(true);
-    setConfirmOut(false);
-    reload();
   };
 
   const openPost = (postId: string) => {
@@ -275,7 +304,7 @@ function GroupDetail({ id, created }: { id: string; created: boolean }) {
         </Link>
       </div>
 
-      {created && <InvitePanel group={group} onRegenerated={reload} highlight />}
+      {created && <InvitePanel group={group} onRegenerated={onRegenerated} highlight />}
 
       {/* 地図：トップと同じ部品 */}
       {theme === 'a' ? (
@@ -372,7 +401,7 @@ function GroupDetail({ id, created }: { id: string; created: boolean }) {
                 {m.name.slice(0, 1)}
               </span>
               <span className="min-w-0 flex-1 truncate font-bold text-ink">
-                {m.id === CURRENT_USER.id ? 'あなた' : m.name}
+                {m.id === me ? `あなた（${m.name}）` : m.name}
               </span>
               {m.id === group.ownerId && (
                 <span className="shrink-0 rounded-full bg-tint px-2 py-0.5 text-xs font-bold text-link">作った人</span>
@@ -382,7 +411,7 @@ function GroupDetail({ id, created }: { id: string; created: boolean }) {
         </ul>
       </section>
 
-      {!created && <InvitePanel group={group} onRegenerated={reload} highlight={false} />}
+      {!created && <InvitePanel group={group} onRegenerated={onRegenerated} highlight={false} />}
 
       {/* 抜ける／消す */}
       <section className="space-y-2 border-t border-line-soft pt-4">
@@ -391,7 +420,7 @@ function GroupDetail({ id, created }: { id: string; created: boolean }) {
             <p className="text-sm text-ink">
               {owner
                 ? 'グループを消すと、メンバー全員がこのグループを見られなくなります。旅行と写真そのものは、それぞれの人の手元に残ります。'
-                : '抜けると、このグループの旅行と写真は見られなくなります。あなたがこのグループに見せていた旅行と写真は、グループから外れます。'}
+                : '抜けると、このグループの旅行と写真は見られなくなります。あなたがこのグループに見せていた旅行と写真は、グループに残ります（見せたくなければ、抜ける前に見せる先を変えるか消してください）。'}
             </p>
             <div className="flex flex-wrap gap-2">
               <button type="button" onClick={leaveOrDelete} className={`${SMALL_BTN} border-red-400 bg-red-500 text-white`}>
@@ -411,10 +440,13 @@ function GroupDetail({ id, created }: { id: string; created: boolean }) {
             {owner ? 'グループを消す（作った人だけ）' : 'このグループを抜ける'}
           </button>
         )}
+        {outError && (
+          <p role="alert" className="text-sm font-bold text-red-500">
+            {outError}
+          </p>
+        )}
         {owner && <p className="text-xs text-muted">作った人は抜けられません（消すことはできます）。</p>}
       </section>
-
-      <DemoNote />
     </div>
   );
 }

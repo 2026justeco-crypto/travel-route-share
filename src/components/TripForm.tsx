@@ -6,8 +6,9 @@
 import { useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
-import type { TransportMode, Trip, TripSpot } from '@/lib/types';
-import { saveTrip, uid, ME_NAME, loadDraft, saveDraft, clearDraft } from '@/lib/store';
+import type { TransportMode, Trip, TripSpot, Visibility } from '@/lib/types';
+import { saveTrip, uid, newId, ME_NAME, loadDraft, saveDraft, clearDraft } from '@/lib/store';
+import { getShares, myGroups, syncShares, type GroupBrief } from '@/lib/groups';
 import { photoPut } from '@/lib/idb';
 import {
   forgetLocalPhotos,
@@ -28,15 +29,13 @@ import {
   ChevronDownIcon,
   ChevronUpIcon,
   CloseIcon,
-  GlobeIcon,
-  LockIcon,
   ModeIcon,
   ModeUnsetIcon,
   PinIcon,
   SearchIcon,
 } from '@/components/icons';
 import type { RoutePoint } from '@/components/JapanMap';
-import ShareToPicker, { type PickVisibility } from '@/components/ShareToPicker';
+import ShareToPicker, { ShareIcon, shareLabel, type ShareValue } from '@/components/ShareToPicker';
 
 interface SpotSearch {
   spotId: string;
@@ -51,7 +50,8 @@ interface Draft {
   endDate: string;
   status: 'plan' | 'done';
   spots: TripSpot[];
-  visibility?: PickVisibility; // 見せる先（依頼10）。古い下書きには無い（依頼9の groupIds は読まない）
+  visibility?: Visibility; // 見せる先（依頼10）。古い下書きには無い
+  shareGroupIds?: string[]; // 見せるグループ（依頼12）。visibility=groups のときだけ使う
 }
 
 // スマホでは地図を画面の半分ほどに（PCは今までどおり）
@@ -65,7 +65,7 @@ const JapanMap = dynamic(() => import('@/components/JapanMap'), {
 interface Props {
   initial?: Trip; // 編集時に渡す
   initialStatus?: 'plan' | 'done'; // 新規作成時の初期状態（「思い出をつくる」入口用）
-  initialGroupIds?: string[]; // グループのページの「このグループに足す」から来たとき（グループは依頼12。今は既定を「自分だけ」にするだけ）
+  initialGroupIds?: string[]; // グループのページの「このグループに足す」から来たとき（見せる先にそのグループを入れておく）
 }
 
 const emptySpot = (): TripSpot => ({ id: uid(), name: '', memo: '', lat: null, lng: null, photoId: null });
@@ -97,10 +97,27 @@ export default function TripForm({ initial, initialStatus, initialGroupIds }: Pr
   const [spots, setSpots] = useState<TripSpot[]>(
     () => draft?.spots ?? initial?.spots ?? [emptySpot()],
   );
-  // 見せる先：新規の既定は「全体」（シアン判断）。グループのページから来たときだけ、グループ機能ができるまで「自分だけ」
-  const initialVisibility = (): PickVisibility =>
-    initial ? (initial.visibility === 'public' ? 'public' : 'private') : initialGroupIds?.length ? 'private' : 'public';
-  const [visibility, setVisibility] = useState<PickVisibility>(() => draft?.visibility ?? initialVisibility());
+  // 見せる先：新規の既定は「全体」（シアン判断）。グループのページから来たときはそのグループ。
+  //   編集のときのグループはサーバーから読む（下の useEffect）
+  const initialShare = (): ShareValue =>
+    initial
+      ? { visibility: initial.visibility ?? 'public', groupIds: [] }
+      : initialGroupIds?.length
+        ? { visibility: 'groups', groupIds: initialGroupIds }
+        : { visibility: 'public', groupIds: [] };
+  const [share, setShare] = useState<ShareValue>(() =>
+    draft?.visibility
+      ? { visibility: draft.visibility, groupIds: draft.visibility === 'groups' ? (draft.shareGroupIds ?? []) : [] }
+      : initialShare(),
+  );
+  const visibility = share.visibility;
+  // 自分が入っているグループ（null＝読み込み中）と、編集中の旅行を今見せているグループ
+  const [groups, setGroups] = useState<GroupBrief[] | null>(null);
+  const [savedShare, setSavedShare] = useState<string[]>([]);
+  const [leftCount, setLeftCount] = useState(0);
+  const [dropLeft, setDropLeft] = useState(false);
+  // 新しい旅行の id は最初に決めておく（保存の途中で失敗してやり直しても、2つできないように）
+  const [newTripId] = useState(() => newId());
   const [saveError, setSaveError] = useState('');
   const [photos, setPhotos] = useState<Map<string, string>>(new Map());
   const [pickTarget, setPickTarget] = useState<string | null>(null);
@@ -131,6 +148,39 @@ export default function TripForm({ initial, initialStatus, initialGroupIds }: Pr
     };
   }, [firstPhotoIds]);
 
+  // 入っているグループ・編集中の旅行の見せる先を読む
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const gs = await myGroups();
+        if (!alive) return;
+        setGroups(gs);
+        const ids = gs.map((g) => g.id);
+        if (initial) {
+          const st = await getShares('trip', initial.id, ids);
+          if (!alive) return;
+          setSavedShare(st.mine);
+          setLeftCount(st.leftCount);
+          // 下書きが無ければ、今見せているグループを選んだ状態にする
+          if (!draft?.visibility && initial.visibility === 'groups') setShare({ visibility: 'groups', groupIds: st.mine });
+        } else {
+          // 入っていないグループの id（URL の書き換え・抜けた後）は外す
+          setShare((cur) => {
+            if (cur.visibility !== 'groups') return cur;
+            const keep = cur.groupIds.filter((g) => ids.includes(g));
+            return keep.length ? { ...cur, groupIds: keep } : { visibility: 'private', groupIds: [] };
+          });
+        }
+      } catch {
+        if (alive) setGroups([]);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [initial, draft]);
+
   // 入力のたびに下書きを保存（何も書いていない間は保存しない）
   useEffect(() => {
     const pristine = initial
@@ -139,11 +189,21 @@ export default function TripForm({ initial, initialStatus, initialGroupIds }: Pr
         endDate === initial.endDate &&
         status === initial.status &&
         JSON.stringify(spots) === JSON.stringify(initial.spots) &&
-        visibility === (initial.visibility === 'public' ? 'public' : 'private')
+        visibility === (initial.visibility ?? 'public') &&
+        (visibility !== 'groups' || [...share.groupIds].sort().join() === [...savedShare].sort().join())
       : !title.trim() && !endDate && spots.every(isEmptySpot);
     if (pristine) clearDraft(draftKey);
-    else saveDraft(draftKey, { title, startDate, endDate, status, spots, visibility } satisfies Draft);
-  }, [draftKey, initial, title, startDate, endDate, status, spots, visibility]);
+    else
+      saveDraft(draftKey, {
+        title,
+        startDate,
+        endDate,
+        status,
+        spots,
+        visibility,
+        shareGroupIds: share.groupIds,
+      } satisfies Draft);
+  }, [draftKey, initial, title, startDate, endDate, status, spots, visibility, share.groupIds, savedShare]);
 
   const startOver = () => {
     clearDraft(draftKey);
@@ -153,7 +213,10 @@ export default function TripForm({ initial, initialStatus, initialGroupIds }: Pr
     setShowEnd(!!initial?.endDate && initial.endDate !== initial.startDate);
     setStatus(initial?.status ?? initialStatus ?? 'plan');
     setSpots(initial?.spots ?? [emptySpot()]);
-    setVisibility(initialVisibility());
+    setShare(
+      initial?.visibility === 'groups' ? { visibility: 'groups', groupIds: savedShare } : initialShare(),
+    );
+    setDropLeft(false);
     setSearch(null);
     setPickTarget(null);
     setRestored(false);
@@ -283,7 +346,7 @@ export default function TripForm({ initial, initialStatus, initialGroupIds }: Pr
     }));
     const firstTyped = filled.find((s) => s.name.trim())?.name.trim();
     const trip: Trip = {
-      id: initial?.id ?? uid(),
+      id: initial?.id ?? newTripId,
       userId: initial?.userId ?? '',
       userName: initial?.userName ?? ME_NAME,
       // 名前が空なら、入力したスポット名か日付から自動で付ける
@@ -311,6 +374,8 @@ export default function TripForm({ initial, initialStatus, initialGroupIds }: Pr
       // サーバーに保存（持ち主はサーバーがログイン中の人に決める。新しい旅行の id もここで決まる）
       const saved = await saveTrip({ ...trip, spots: up.spots });
       uploaded = [];
+      // 見せる先のグループを合わせる（グループ以外にしたら、グループへの共有は外す）
+      await syncShares('trip', saved.id, visibility, share.groupIds, dropLeft);
       clearDraft(draftKey);
       void forgetLocalPhotos(up.localIds);
       // 編集で差し替え・消したスポットの写真は、サーバーからも消す
@@ -579,7 +644,14 @@ export default function TripForm({ initial, initialStatus, initialGroupIds }: Pr
 
         {/* 見せる先（依頼10）：全体／自分だけ */}
         <div id="trip-visibility">
-          <ShareToPicker value={visibility} onChange={setVisibility} />
+          <ShareToPicker
+            value={share}
+            onChange={setShare}
+            groups={groups}
+            leftCount={leftCount}
+            dropLeft={dropLeft}
+            onDropLeft={setDropLeft}
+          />
         </div>
 
         {/* 保存ボタン：スマホでは画面の下に貼りつけて、いつでも押せるように */}
@@ -601,8 +673,8 @@ export default function TripForm({ initial, initialStatus, initialGroupIds }: Pr
             }}
             className="mt-1 flex min-h-9 items-center justify-center gap-1 text-sm font-bold text-ink-soft lg:justify-start"
           >
-            {visibility === 'public' ? <GlobeIcon className="h-4 w-4" /> : <LockIcon className="h-4 w-4" />}
-            見せる先：{visibility === 'public' ? '全体' : '自分だけ'}
+            <ShareIcon visibility={visibility} />
+            <span className="max-w-[16rem] truncate">見せる先：{shareLabel(share, groups)}</span>
             <span className="text-link underline">変える</span>
           </a>
           {saveError && (

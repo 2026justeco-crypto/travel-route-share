@@ -11,7 +11,8 @@ import { usePathname } from 'next/navigation';
 import { ensureSession, retrySession, useAuth } from '@/lib/supabase';
 import { chooseLater, laterChosen, migrateAll, pendingLocal } from '@/lib/migrate';
 import { INPUT_PAGES } from '@/lib/navTrail';
-import { sweepOrphanPhotos } from '@/lib/photos';
+import { forgetLocalPhotos, sweepOrphanPhotos } from '@/lib/photos';
+import { forgetGroupPrototype } from '@/lib/groups';
 
 // 下部タブ（スマホ）の上に出す。入力画面ではタブが無いので保存ボタンの上に出さない＝入力画面では出さない
 const WRAP_BASE = 'fixed inset-x-0 z-[1001] mx-auto w-full max-w-md px-4';
@@ -40,6 +41,9 @@ export default function AuthBoot() {
     } catch {
       // 読めない環境では何もしない
     }
+    // グループの試作（依頼9）の見本を端末から片付ける（依頼12でサーバー版にした）
+    const ids = forgetGroupPrototype();
+    if (ids.length) void forgetLocalPhotos(ids);
   }, []);
 
   // 写真の消し損ねの掃除（タブを開いて1回だけ・画面には何も出さない）

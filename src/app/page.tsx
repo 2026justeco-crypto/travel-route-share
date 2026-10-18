@@ -147,8 +147,12 @@ export default function Home() {
     let alive = true;
     const load = async () => {
       try {
-        // サーバーから：全体に見せたもの＋自分のもの（それ以外は RLS で返ってこない）
-        const [ps, ts, fv] = await Promise.all([listPosts(), listTrips(), favoriteIds().catch(() => new Set<string>())]);
+        // サーバーから：全体に見せたもの＋自分のもの（ほかの人がグループにだけ見せたものはグループのページで見る）
+        const [ps, ts, fv] = await Promise.all([
+          listPosts('top'),
+          listTrips('top'),
+          favoriteIds().catch(() => new Set<string>()),
+        ]);
         if (!alive) return;
         setPosts(ps);
         setTrips(ts);

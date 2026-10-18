@@ -5,6 +5,7 @@
 //   守りは DB の RLS（supabase/migrations/0001_init.sql）。ここで「出さない」のは見た目の都合だけ。
 //   下書きは今までどおりこの端末（localStorage）に置く。
 //   写真はサーバーの Storage（依頼11・lib/photos.ts）。旅行・投稿を消したら、付いていた写真も消す。
+//   グループ（依頼12）：見せる先＝groups のとき、どのグループに見せるかは trip_groups / post_groups（lib/groups.ts）。
 
 import type { Post, Region, Trip, TripSpot, Visibility } from './types';
 import { ensureSession, myUserId, supabase } from './supabase';
@@ -136,12 +137,37 @@ async function beforeRead() {
 
 // ---------- Posts ----------
 
-/** 見られる投稿すべて（全体に見せたもの＋自分のもの。RLS が絞る）。新しい順 */
-export async function listPosts(): Promise<Post[]> {
+/**
+ * 一覧の範囲。top＝トップ（みんなの旅）用：全体に見せたもの＋自分のもの（ほかの人がグループにだけ見せたものはグループのページで見る）／
+ * all＝見られるものすべて（RLS が絞る。入っているグループに見せたものも入る）
+ */
+export type ListScope = 'top' | 'all';
+
+/** top のときの絞り込み（PostgREST の or）。未ログインなら全体だけ */
+function topFilter(): string {
+  const me = myUserId();
+  return me ? `visibility.eq.public,owner.eq.${me}` : 'visibility.eq.public';
+}
+
+/** 見られる投稿（RLS が絞る）。新しい順 */
+export async function listPosts(scope: ListScope = 'all'): Promise<Post[]> {
+  await beforeRead();
+  let q = supabase().from('posts').select(POST_COLS);
+  if (scope === 'top') q = q.or(topFilter());
+  const { data, error } = await q.order('created_at', { ascending: false }).limit(500);
+  if (error) throw error;
+  return (data as unknown as PostRow[]).map(toPost);
+}
+
+/** そのグループに見せた投稿（メンバーでなければ RLS で0件）。新しい順 */
+export async function listGroupPosts(groupId: string): Promise<Post[]> {
+  if (!isServerId(groupId)) return [];
   await beforeRead();
   const { data, error } = await supabase()
     .from('posts')
-    .select(POST_COLS)
+    .select(`${POST_COLS}, post_groups!inner(group_id)`)
+    .eq('post_groups.group_id', groupId)
+    .eq('visibility', 'groups')
     .order('created_at', { ascending: false })
     .limit(500);
   if (error) throw error;
@@ -184,12 +210,25 @@ export async function deletePost(id: string): Promise<boolean> {
 
 // ---------- Trips ----------
 
-/** 見られる旅行すべて（全体に見せたもの＋自分のもの。RLS が絞る）。新しい順 */
-export async function listTrips(): Promise<Trip[]> {
+/** 見られる旅行（RLS が絞る）。新しい順 */
+export async function listTrips(scope: ListScope = 'all'): Promise<Trip[]> {
+  await beforeRead();
+  let q = supabase().from('trips').select(TRIP_COLS);
+  if (scope === 'top') q = q.or(topFilter());
+  const { data, error } = await q.order('created_at', { ascending: false }).limit(500);
+  if (error) throw error;
+  return (data as unknown as TripRow[]).map(toTrip);
+}
+
+/** そのグループに見せた旅行（メンバーでなければ RLS で0件）。新しい順 */
+export async function listGroupTrips(groupId: string): Promise<Trip[]> {
+  if (!isServerId(groupId)) return [];
   await beforeRead();
   const { data, error } = await supabase()
     .from('trips')
-    .select(TRIP_COLS)
+    .select(`${TRIP_COLS}, trip_groups!inner(group_id)`)
+    .eq('trip_groups.group_id', groupId)
+    .eq('visibility', 'groups')
     .order('created_at', { ascending: false })
     .limit(500);
   if (error) throw error;

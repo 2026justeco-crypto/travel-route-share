@@ -5,7 +5,8 @@
 //   - 置く前に縮小（長い辺 1600px・JPEG。300KB を超えたら質を少しずつ下げる）。canvas で描き直すので EXIF（撮った場所など）は残らない
 //   - 出すときは署名付きURL（有効期限つき）。一覧はまとめて取る（createSignedUrls）
 //   - 守りは storage.objects の RLS（supabase/migrations/0002_photos.sql）。ここで「出さない」のは見た目の都合だけ
-//   - 入力中（下書き）の写真はまだこの端末の IndexedDB（保存した時にアップロード）。グループの試作（依頼12まで）も端末の中のまま
+//   - 入力中（下書き）の写真はまだこの端末の IndexedDB（保存した時にアップロード）
+//   - グループに見せた写真も同じバケット・同じ判定（依頼12：private.can_read_photo がグループのメンバーも見られるようにした）
 
 import { photoDelete, photoGetMany } from './idb';
 import { ensureSession, supabase } from './supabase';

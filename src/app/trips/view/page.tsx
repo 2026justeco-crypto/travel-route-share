@@ -7,17 +7,16 @@ import Link from 'next/link';
 import type { Trip } from '@/lib/types';
 import { getTrip, saveTrip, deleteTrip, isFavorite, toggleFavorite } from '@/lib/store';
 import { useAuth } from '@/lib/supabase';
-import { getLocalTrip } from '@/lib/localStore';
 import { photoUrls } from '@/lib/photos';
 import PhotoImg from '@/components/PhotoImg';
 import type { RoutePoint } from '@/components/JapanMap';
-import { GlobeIcon, LockIcon, ModeIcon, StarIcon } from '@/components/icons';
+import { ModeIcon, StarIcon } from '@/components/icons';
 import { PageSkeleton } from '@/components/Skeleton';
 import { MODE_COLOR, TRANSPORT_LABEL, routeFromSpots } from '@/lib/transport';
 import { useTheme } from '@/lib/useTheme';
 import { useMounted } from '@/lib/useMounted';
-import { canView, getGroup } from '@/lib/groups';
-import { GroupDot } from '@/components/ShareToPicker';
+import { sharedGroupsVisible, type GroupBrief } from '@/lib/groups';
+import { GroupDot, ShareIcon } from '@/components/ShareToPicker';
 
 // スマホでは地図を先に・画面の半分ほどで出す（ルートをすぐ確かめられるように）
 const MAP_HEIGHT = 'min(52vh, 560px)';
@@ -31,8 +30,8 @@ function TripDetail({ id }: { id: string }) {
   const router = useRouter();
   // undefined＝読み込み中／null＝無い・見られない（自分だけの旅行を他の人が開いたときも、RLS で「無い」になる）
   const [trip, setTrip] = useState<Trip | null | undefined>(undefined);
-  // グループの試作（依頼9）の見本は、まだこの端末の中だけにある（依頼12でサーバーへ）
-  const [localOnly, setLocalOnly] = useState(false);
+  // 見せているグループのうち、自分が入っているもの（メンバーでないグループは RLS で返らない）
+  const [shareGroups, setShareGroups] = useState<GroupBrief[]>([]);
   const [loadError, setLoadError] = useState(false);
   const [fav, setFav] = useState(false);
   const [photos, setPhotos] = useState<Map<string, string>>(new Map());
@@ -48,17 +47,18 @@ function TripDetail({ id }: { id: string }) {
       try {
         const t = await getTrip(id);
         if (!alive) return;
-        if (t) {
-          setTrip(t);
-          const f = await isFavorite(id).catch(() => false);
-          if (alive) setFav(f);
+        if (!t) {
+          setTrip(null);
           return;
         }
-        const local = getLocalTrip(id);
-        if (local && local.groupIds?.length) {
-          setLocalOnly(true);
-          setTrip(local);
-        } else setTrip(null);
+        setTrip(t);
+        const [f, gs] = await Promise.all([
+          isFavorite(id).catch(() => false),
+          t.visibility === 'groups' ? sharedGroupsVisible('trip', id).catch(() => []) : Promise.resolve([]),
+        ]);
+        if (!alive) return;
+        setFav(f);
+        setShareGroups(gs);
       } catch {
         if (alive) {
           setLoadError(true);
@@ -76,7 +76,7 @@ function TripDetail({ id }: { id: string }) {
     const ids = photoKey.split(',').filter(Boolean);
     if (!ids.length) return;
     let alive = true;
-    // 写真はまとめて署名付きURLにする（グループの試作の写真だけは端末から）
+    // 写真はまとめて署名付きURLにする（見てはいけない写真は返ってこない＝RLS）
     photoUrls(ids).then((m) => {
       if (!alive) return;
       setPhotos(m);
@@ -94,25 +94,10 @@ function TripDetail({ id }: { id: string }) {
       <div className="text-sm text-muted">
         {loadError
           ? '旅行を読み込めませんでした。通信のよいところで開き直してください。'
-          : '旅行が見つかりません（消されたか、作った人だけが見られる旅行です）。'}
+          : '旅行が見つかりません（消されたか、作った人や見せる先のグループのメンバーだけが見られる旅行です）。'}
         <Link href="/" className="text-link underline">トップへ戻る</Link>
       </div>
     );
-
-  // グループにだけ見せた旅行（試作・この端末の中だけ）は、そのグループのメンバーだけが見られる
-  if (localOnly && !canView(trip))
-    return (
-      <div className="rounded-xl border border-dashed border-line-soft bg-surface p-8 text-center text-sm text-muted">
-        この旅行はグループのメンバーだけが見られます。
-        <div className="mt-3">
-          <Link href="/groups" className="font-bold text-link underline">
-            グループを見る
-          </Link>
-        </div>
-      </div>
-    );
-
-  const shareGroups = localOnly ? (trip.groupIds ?? []).map((g) => getGroup(g)).filter((g) => !!g) : [];
 
   const route: RoutePoint[] = routeFromSpots(trip.spots);
 
@@ -125,7 +110,7 @@ function TripDetail({ id }: { id: string }) {
       : [37.5, 137.0];
 
   // 編集・削除のボタンは自分の旅行にだけ出す（出さないのは見た目の都合。守りは RLS）
-  const isMine = !localOnly && !!me && trip.userId === me;
+  const isMine = !!me && trip.userId === me;
 
   const markDone = async () => {
     setActionError('');
@@ -149,7 +134,6 @@ function TripDetail({ id }: { id: string }) {
   };
 
   const onFav = async () => {
-    if (localOnly) return;
     const before = fav;
     setFav(!before);
     try {
@@ -178,14 +162,14 @@ function TripDetail({ id }: { id: string }) {
           </div>
           <h1 className="mt-1 text-2xl font-bold">{trip.title}</h1>
           <div className="mt-1 text-sm text-muted">作った人：{trip.userName}</div>
-          {/* 見せる先：自分の旅行は全体／自分だけを出す。グループ（試作）は押すとそのグループのページへ */}
+          {/* 見せる先：自分の旅行は全体／グループ／自分だけを出す。グループは押すとそのグループのページへ */}
           {(isMine || shareGroups.length > 0) && (
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs font-bold text-muted">
               <span>見せる先：</span>
               {shareGroups.length === 0 ? (
                 <span className="inline-flex items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5">
-                  {trip.visibility === 'public' ? <GlobeIcon className="h-3.5 w-3.5" /> : <LockIcon className="h-3.5 w-3.5" />}
-                  {trip.visibility === 'public' ? '全体' : '自分だけ'}
+                  <ShareIcon visibility={trip.visibility ?? 'public'} className="h-3.5 w-3.5" />
+                  {trip.visibility === 'public' ? '全体' : trip.visibility === 'groups' ? 'グループ' : '自分だけ'}
                 </span>
               ) : (
                 shareGroups.map((g) => (
@@ -204,7 +188,6 @@ function TripDetail({ id }: { id: string }) {
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {!localOnly && (
           <button
             type="button"
             onClick={onFav}
@@ -216,7 +199,6 @@ function TripDetail({ id }: { id: string }) {
             <StarIcon filled={fav} className={`h-5 w-5 ${fav ? 'text-amber-500' : ''}`} />
             {fav ? 'お気に入り済み' : 'お気に入り'}
           </button>
-          )}
           {isMine && trip.status === 'plan' && (
             <button
               type="button"

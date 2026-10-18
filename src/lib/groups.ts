@@ -1,326 +1,341 @@
-// グループ（依頼9）。★試作（依頼12でサーバー版にする。それまではこの端末の localStorage のまま＝lib/localStore.ts）：グループはこの端末（このブラウザ）の中だけ。ほかの人の端末には届かない。
-//   β版では Supabase の groups / group_members / group_shares に置き換える（設計：logs/docs/travel-route-share/group-sekkei.md）。
+'use client';
+
+// グループ（依頼9で試作 → 依頼12でサーバー版）。Supabase の groups / group_members / group_invites / trip_groups / post_groups。
+//   守りは DB の RLS と関数（supabase/migrations/0005_groups.sql）。ここで「出さない」のは見た目の都合だけ。
 //
-// 見える範囲のルール（試作でも同じ考え方で作る）
-//   - グループの中身（旅行・写真）はメンバーだけが見られる
-//   - 入れるのは招待リンク（合言葉）を知っている人だけ。合言葉を作り直すと古いリンクは使えない
-//   - 抜けたら、その人がそのグループに見せていた旅行・写真はグループから外れる（本人の手元には残る）
-//   - 消せるのは作った人だけ。作った人は抜けられない（消すか、β版で「作った人を渡す」）
+// 見える範囲のルール
+//   - グループの中身（旅行・写真・メンバー一覧・招待リンク）はメンバーだけ
+//   - 入れるのは招待リンク（24文字の乱数）を知っている人だけ。作り直すと古いリンクは使えない
+//   - 抜けた人が見せていたものはグループに残る（抜けた人自身はもう中を見られない。自分の旅行を「自分だけ」にする・消すのは自由）
+//   - 消せるのは作った人だけ。作った人は抜けられない。消すとグループへの共有だけが消える（旅行・投稿は残る）
 
-import type { Group, Post, Trip, TripSpot } from './types';
-import {
-  LOCAL_USER as CURRENT_USER,
-  getLocalTrip as getTrip,
-  listLocalPosts as listPosts,
-  listLocalTrips as listTrips,
-  placeholderSvg,
-  saveLocalPost as savePost,
-  saveLocalTrip as saveTrip,
-  uid,
-} from './localStore';
-import { photoPut } from './idb';
-import { nearestPrefecture } from './regions';
-
-const GROUPS_KEY = 'trs_groups';
-const SEED_GROUPS_KEY = 'trs_seeded_groups_v1';
+import type { Group, GroupMember, Visibility } from './types';
+import { ensureSession, myUserId, supabase } from './supabase';
+import { isServerId } from './store';
 
 /** 目印の色（A のポップな色。B でも見分けやすい明るさ） */
 export const GROUP_COLORS = ['#0f8fdc', '#ff5c8a', '#ffb020', '#1fb57a', '#8b5cf6', '#ef4444'] as const;
 
-function read(): Group[] {
-  try {
-    const raw = localStorage.getItem(GROUPS_KEY);
-    const v = raw ? JSON.parse(raw) : [];
-    return Array.isArray(v) ? (v as Group[]) : [];
-  } catch {
-    return [];
-  }
+/** 一覧・見せる先の選択に出す短い形 */
+export interface GroupBrief {
+  id: string;
+  name: string;
+  color: string;
+  ownerId: string;
+  memberCount: number;
+  createdAt: string;
 }
 
-function write(groups: Group[]) {
-  localStorage.setItem(GROUPS_KEY, JSON.stringify(groups));
+async function needUser(): Promise<string> {
+  const id = await ensureSession();
+  if (!id) throw new Error('offline');
+  return id;
 }
 
-/** 推測されにくい合言葉（試作。β版はサーバーで作る） */
-function newCode(): string {
-  const a = new Uint8Array(9);
-  crypto.getRandomValues(a);
-  return Array.from(a, (b) => 'abcdefghijkmnpqrstuvwxyz23456789'[b % 32]).join('');
+interface GroupRow {
+  id: string;
+  name: string;
+  color: string;
+  owner: string;
+  created_at: string;
+  group_members?: { count: number }[];
 }
 
-export function listGroups(): Group[] {
-  return read().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-}
-
-export function getGroup(id: string): Group | undefined {
-  return read().find((g) => g.id === id);
-}
-
-export function isMember(g: Group, userId = CURRENT_USER.id): boolean {
-  return g.members.some((m) => m.id === userId);
-}
-
-export function isOwner(g: Group, userId = CURRENT_USER.id): boolean {
-  return g.ownerId === userId;
-}
-
-/** 自分が入っているグループ */
-export function myGroups(): Group[] {
-  return listGroups().filter((g) => isMember(g));
-}
-
-export function findGroupByCode(code: string): Group | undefined {
-  const c = code.trim();
-  if (!c) return undefined;
-  return read().find((g) => g.inviteCode === c);
-}
-
-function update(id: string, fn: (g: Group) => Group | null) {
-  const groups = read();
-  const i = groups.findIndex((g) => g.id === id);
-  if (i < 0) return;
-  const next = fn(groups[i]);
-  if (next) groups[i] = next;
-  else groups.splice(i, 1);
-  write(groups);
-}
-
-export function createGroup(name: string, color: string): Group {
-  const now = new Date().toISOString();
-  const g: Group = {
-    id: uid(),
-    name: name.trim(),
-    color,
-    ownerId: CURRENT_USER.id,
-    inviteCode: newCode(),
-    members: [{ id: CURRENT_USER.id, name: CURRENT_USER.name, joinedAt: now }],
-    createdAt: now,
+function toBrief(r: GroupRow): GroupBrief {
+  return {
+    id: r.id,
+    name: r.name,
+    color: r.color,
+    ownerId: r.owner,
+    memberCount: r.group_members?.[0]?.count ?? 0,
+    createdAt: r.created_at,
   };
-  write([...read(), g]);
-  return g;
 }
 
-export function joinGroup(id: string) {
-  update(id, (g) =>
-    isMember(g)
-      ? g
-      : { ...g, members: [...g.members, { id: CURRENT_USER.id, name: CURRENT_USER.name, joinedAt: new Date().toISOString() }] },
-  );
+/** 自分が入っているグループ（RLS：メンバーのグループしか返らない）。新しい順 */
+export async function myGroups(): Promise<GroupBrief[]> {
+  const me = await ensureSession();
+  if (!me) return [];
+  const { data, error } = await supabase()
+    .from('groups')
+    .select('id, name, color, owner, created_at, group_members(count)')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data as unknown as GroupRow[]).map(toBrief);
 }
 
-/** 抜ける（作った人は抜けられない）。自分がこのグループに見せていた旅行・写真からグループを外す */
-export function leaveGroup(id: string) {
-  const g = getGroup(id);
-  if (!g || isOwner(g)) return;
-  update(id, (x) => ({ ...x, members: x.members.filter((m) => m.id !== CURRENT_USER.id) }));
-  stripGroup(id, (item) => item.userId === CURRENT_USER.id);
+/** グループごとの旅行・写真の数（見られるものだけ数える） */
+export async function groupCounts(ids: string[]): Promise<Map<string, { trips: number; posts: number }>> {
+  const out = new Map<string, { trips: number; posts: number }>();
+  ids.forEach((id) => out.set(id, { trips: 0, posts: 0 }));
+  if (!ids.length) return out;
+  const sb = supabase();
+  const [t, p] = await Promise.all([
+    sb.from('trip_groups').select('group_id, trips!inner(visibility)').in('group_id', ids).eq('trips.visibility', 'groups'),
+    sb.from('post_groups').select('group_id, posts!inner(visibility)').in('group_id', ids).eq('posts.visibility', 'groups'),
+  ]);
+  if (t.error) throw t.error;
+  if (p.error) throw p.error;
+  for (const r of t.data as { group_id: string }[]) {
+    const c = out.get(r.group_id);
+    if (c) c.trips++;
+  }
+  for (const r of p.data as { group_id: string }[]) {
+    const c = out.get(r.group_id);
+    if (c) c.posts++;
+  }
+  return out;
 }
 
-/** 消す（作った人だけ）。どの旅行・写真からもこのグループを外す（旅行・写真そのものは消さない） */
-export function deleteGroup(id: string) {
-  const g = getGroup(id);
-  if (!g || !isOwner(g)) return;
-  update(id, () => null);
-  stripGroup(id, () => true);
+/** グループ1つ（メンバー一覧・招待コードつき）。メンバーでない・無いときは null（RLS で返らない） */
+export async function getGroup(id: string): Promise<Group | null> {
+  if (!isServerId(id)) return null;
+  await needUser();
+  const sb = supabase();
+  const { data: g, error } = await sb
+    .from('groups')
+    .select('id, name, color, owner, created_at')
+    .eq('id', id)
+    .maybeSingle();
+  if (error) throw error;
+  if (!g) return null;
+  const [m, i] = await Promise.all([
+    sb
+      .from('group_members')
+      .select('user_id, role, joined_at, profiles(display_name)')
+      .eq('group_id', id)
+      .order('joined_at', { ascending: true }),
+    sb.from('group_invites').select('code').eq('group_id', id).maybeSingle(),
+  ]);
+  if (m.error) throw m.error;
+  if (i.error) throw i.error;
+  type MemberRow = {
+    user_id: string;
+    role: 'owner' | 'member';
+    joined_at: string;
+    profiles: { display_name: string | null } | { display_name: string | null }[] | null;
+  };
+  const members: GroupMember[] = (m.data as unknown as MemberRow[]).map((r) => {
+    const prof = Array.isArray(r.profiles) ? r.profiles[0] : r.profiles;
+    return { id: r.user_id, name: prof?.display_name || '旅人', joinedAt: r.joined_at, role: r.role };
+  });
+  const row = g as GroupRow;
+  return {
+    id: row.id,
+    name: row.name,
+    color: row.color,
+    ownerId: row.owner,
+    inviteCode: (i.data as { code: string } | null)?.code ?? '',
+    members,
+    createdAt: row.created_at,
+  };
 }
 
-/** 招待リンクを作り直す（作った人だけ）。古いリンクはもう使えない */
-export function regenerateInvite(id: string): string | undefined {
-  const g = getGroup(id);
-  if (!g || !isOwner(g)) return undefined;
-  const code = newCode();
-  update(id, (x) => ({ ...x, inviteCode: code }));
-  return code;
+export function isOwner(g: { ownerId: string }): boolean {
+  return !!myUserId() && g.ownerId === myUserId();
 }
 
-/** 招待リンク（この端末で開くための URL） */
+// ---------- 表示名（グループに参加・作成するとき1回だけ聞く） ----------
+
+/** 表示名をまだ聞いていなければ、初期値（旅人＋4桁）を返す。聞いたことがあれば null */
+export async function displayNameToAsk(): Promise<string | null> {
+  const me = await ensureSession();
+  if (!me) return null;
+  const { data, error } = await supabase().from('profiles').select('display_name, name_asked').eq('id', me).maybeSingle();
+  if (error || !data) return null;
+  const row = data as { display_name: string; name_asked: boolean };
+  if (row.name_asked) return null;
+  const n = new Uint16Array(1);
+  crypto.getRandomValues(n);
+  return `旅人${String(n[0] % 10000).padStart(4, '0')}`;
+}
+
+// ---------- つくる・入る・抜ける・消す ----------
+
+/** つくる（作った人＝自分。招待コードもサーバーが作る）。グループの id を返す */
+export async function createGroup(name: string, color: string, displayName?: string | null): Promise<string> {
+  await needUser();
+  const { data, error } = await supabase().rpc('create_group', {
+    p_name: name.trim().slice(0, 30),
+    p_color: color,
+    p_display_name: displayName ?? null,
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+export interface InvitePeek {
+  groupId: string;
+  name: string;
+  color: string;
+  memberCount: number;
+  ownerName: string;
+  already: boolean;
+}
+
+/** 招待コードからグループを引く（参加する前の確認用）。合わなければ null */
+export async function peekInvite(code: string): Promise<InvitePeek | null> {
+  const c = code.trim();
+  if (!c) return null;
+  await needUser();
+  const { data, error } = await supabase().rpc('peek_invite', { p_code: c });
+  if (error) throw error;
+  const r = (data as { group_id: string; name: string; color: string; member_count: number; owner_name: string | null; already: boolean }[])[0];
+  if (!r) return null;
+  return {
+    groupId: r.group_id,
+    name: r.name,
+    color: r.color,
+    memberCount: r.member_count,
+    ownerName: r.owner_name || '旅人',
+    already: r.already,
+  };
+}
+
+/** 参加する。グループの id を返す（コードが合わなければ null） */
+export async function joinGroup(code: string, displayName?: string | null): Promise<string | null> {
+  await needUser();
+  const { data, error } = await supabase().rpc('join_group', { p_code: code.trim(), p_display_name: displayName ?? null });
+  if (error) throw error;
+  return (data as string | null) ?? null;
+}
+
+/** 抜ける（作った人は抜けられない＝RLS）。自分が見せていたものはグループに残る。抜けられたら true */
+export async function leaveGroup(id: string): Promise<boolean> {
+  const me = await needUser();
+  const { data, error } = await supabase()
+    .from('group_members')
+    .delete()
+    .eq('group_id', id)
+    .eq('user_id', me)
+    .select('user_id');
+  if (error) throw error;
+  return data.length > 0;
+}
+
+/** 消す（作った人だけ＝RLS）。グループへの共有だけが消える（旅行・投稿そのものは残る）。消せたら true */
+export async function deleteGroup(id: string): Promise<boolean> {
+  await needUser();
+  const { error, count } = await supabase().from('groups').delete({ count: 'exact' }).eq('id', id);
+  if (error) throw error;
+  return (count ?? 0) > 0;
+}
+
+/** 招待リンクを作り直す（作った人だけ）。新しいコードを返す */
+export async function regenerateInvite(id: string): Promise<string> {
+  await needUser();
+  const { data, error } = await supabase().rpc('regenerate_invite', { p_group: id });
+  if (error) throw error;
+  return data as string;
+}
+
+/** 招待リンク（開くと参加の確認画面） */
 export function inviteUrl(code: string): string {
   const base = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
   return `${window.location.origin}${base}/groups/join/?code=${encodeURIComponent(code)}`;
 }
 
-function stripGroup(id: string, which: (item: { userId: string }) => boolean) {
-  for (const t of listTrips()) {
-    if (which(t) && t.groupIds?.includes(id)) saveTrip({ ...t, groupIds: t.groupIds.filter((x) => x !== id) });
-  }
-  for (const p of listPosts()) {
-    if (which(p) && p.groupIds?.includes(id)) savePost({ ...p, groupIds: p.groupIds.filter((x) => x !== id) });
-  }
+// ---------- 見せる先（旅行・投稿 ⇔ グループ） ----------
+
+export type ShareKind = 'trip' | 'post';
+
+function shareTable(kind: ShareKind) {
+  return kind === 'trip' ? { table: 'trip_groups', col: 'trip_id' } : { table: 'post_groups', col: 'post_id' };
 }
 
-// ---------- 見える範囲 ----------
+export interface ShareState {
+  /** 自分が入っているグループのうち、見せているもの */
+  mine: string[];
+  /** 抜けた（もう入っていない）グループに見せたままの数（持ち主だけが分かる） */
+  leftCount: number;
+}
+
+/** 自分の旅行・投稿を、どのグループに見せているか */
+export async function getShares(kind: ShareKind, id: string, myGroupIds: string[]): Promise<ShareState> {
+  if (!isServerId(id)) return { mine: [], leftCount: 0 };
+  await needUser();
+  const { table, col } = shareTable(kind);
+  const { data, error } = await supabase().from(table).select('group_id').eq(col, id);
+  if (error) throw error;
+  const ids = (data as { group_id: string }[]).map((r) => r.group_id);
+  const mine = new Set(myGroupIds);
+  return { mine: ids.filter((g) => mine.has(g)), leftCount: ids.filter((g) => !mine.has(g)).length };
+}
 
 /**
- * この旅行・写真を今の人が見られるか。
- *   自分のもの → 見られる／見せる先のグループが無い（古いデータ・見本）→ 今までどおり見られる／
- *   グループに見せたもの → そのどれかのメンバーなら見られる
+ * 保存のあと、見せる先のグループを合わせる。
+ *   visibility が groups 以外 → グループへの共有をすべて外す
+ *   groups → 入っているグループは選んだとおりに付け外し。抜けたグループに見せたままのものは dropLeft のときだけ外す
  */
-export function canView(item: { userId: string; groupIds?: string[] }, groups: Group[] = read()): boolean {
-  if (item.userId === CURRENT_USER.id) return true;
-  if (!item.groupIds || item.groupIds.length === 0) return true;
-  return item.groupIds.some((id) => {
-    const g = groups.find((x) => x.id === id);
-    return !!g && isMember(g);
-  });
-}
-
-/** トップ（みんなの旅）に出すか：ほかの人がグループにだけ見せたものはトップに出さない（グループのページで見る） */
-export function showOnTop(item: { userId: string; groupIds?: string[] }): boolean {
-  if (item.userId === CURRENT_USER.id) return true;
-  return !item.groupIds || item.groupIds.length === 0;
-}
-
-export function groupTrips(id: string): Trip[] {
-  return listTrips().filter((t) => t.groupIds?.includes(id));
-}
-
-export function groupPosts(id: string): Post[] {
-  return listPosts().filter((p) => p.groupIds?.includes(id));
-}
-
-/** 見せる先の id のうち、今も自分が入っているグループだけ残す（抜けた・消えたグループを外す） */
-export function keepMyGroupIds(ids: string[] | undefined): string[] {
-  const mine = new Set(myGroups().map((g) => g.id));
-  return (ids ?? []).filter((id) => mine.has(id));
-}
-
-// ---------- 見本データ（グループ2つ・それぞれに旅行。既存の見本は消さない。1回だけ足す） ----------
-
-const CIRCLE_ID = 'demo-group-circle';
-const FAMILY_ID = 'demo-group-family';
-
-/** 今までの見本＋グループの見本をまとめて入れる（どの画面から開いても同じものが入る） */
-export async function seedAll(): Promise<void> {
-  // 今までの見本（旅行・写真）はサーバーの「運営の見本」に移った（依頼10）。ここではグループの見本だけ入れる
-  await seedGroupsIfNeeded();
-}
-
-async function seedGroupsIfNeeded(): Promise<void> {
-  if (localStorage.getItem(SEED_GROUPS_KEY)) return;
-  const day = 86400000;
-  const now = Date.now();
-  const iso = (d: number) => new Date(now - d * day).toISOString();
-  const groups = read();
-  // 大学の旅サークル：ほかの人が作ったグループ（自分はまだ入っていない＝招待リンクで入る流れを試せる）
-  if (!groups.some((g) => g.id === CIRCLE_ID)) {
-    groups.push({
-      id: CIRCLE_ID,
-      name: '大学の旅サークル',
-      color: GROUP_COLORS[0],
-      ownerId: 'demo-circle-1',
-      inviteCode: 'circle-demo-7k2m',
-      members: [
-        { id: 'demo-circle-1', name: 'ぶちょう', joinedAt: iso(40) },
-        { id: 'demo-circle-2', name: 'みさき', joinedAt: iso(39) },
-        { id: 'demo-circle-3', name: 'けんた', joinedAt: iso(30) },
-      ],
-      createdAt: iso(40),
-    });
+export async function syncShares(
+  kind: ShareKind,
+  id: string,
+  visibility: Visibility,
+  selected: string[],
+  dropLeft = false,
+): Promise<void> {
+  await needUser();
+  const { table, col } = shareTable(kind);
+  const sb = supabase();
+  const [{ data: cur, error: e1 }, groups] = await Promise.all([
+    sb.from(table).select('group_id').eq(col, id),
+    myGroups(),
+  ]);
+  if (e1) throw e1;
+  const now = (cur as { group_id: string }[]).map((r) => r.group_id);
+  const mine = new Set(groups.map((g) => g.id));
+  const want = visibility === 'groups' ? Array.from(new Set(selected)).filter((g) => mine.has(g)) : [];
+  const drop = now.filter((g) => !want.includes(g) && (visibility !== 'groups' || mine.has(g) || dropLeft));
+  const add = want.filter((g) => !now.includes(g));
+  if (drop.length) {
+    const { error } = await sb.from(table).delete().eq(col, id).in('group_id', drop);
+    if (error) throw error;
   }
-  // 家族：自分が作ったグループ
-  if (!groups.some((g) => g.id === FAMILY_ID)) {
-    groups.push({
-      id: FAMILY_ID,
-      name: '家族',
-      color: GROUP_COLORS[1],
-      ownerId: CURRENT_USER.id,
-      inviteCode: 'kazoku-demo-3p9x',
-      members: [
-        { id: CURRENT_USER.id, name: CURRENT_USER.name, joinedAt: iso(20) },
-        { id: 'demo-family-1', name: 'お母さん', joinedAt: iso(19) },
-        { id: 'demo-family-2', name: 'お父さん', joinedAt: iso(19) },
-      ],
-      createdAt: iso(20),
-    });
+  if (add.length) {
+    const { error } = await sb.from(table).insert(add.map((g) => ({ [col]: id, group_id: g })));
+    if (error) throw error;
   }
-  write(groups);
+}
 
-  const spot = (name: string, lat: number, lng: number, memo: string, moveTo?: TripSpot['moveTo']): TripSpot => ({
-    id: uid(),
-    name,
-    memo,
-    lat,
-    lng,
-    photoId: null,
-    ...(moveTo ? { moveTo } : {}),
-  });
-  const trips: Trip[] = [
-    {
-      id: 'demo-group-trip-gasshuku',
-      userId: 'demo-circle-1',
-      userName: 'ぶちょう',
-      title: '夏合宿 松本・上高地',
-      startDate: '2026-08-21',
-      endDate: '2026-08-23',
-      status: 'done',
-      spots: [
-        spot('新宿駅', 35.6896, 139.7006, '特急あずさで松本へ。', 'train'),
-        spot('松本城', 36.2381, 137.9691, '黒い天守がかっこいい。バスで上高地へ。', 'bus'),
-        spot('上高地 河童橋', 36.2513, 137.6378, '朝の霧がきれいだった。'),
-      ],
-      createdAt: iso(25),
-      groupIds: [CIRCLE_ID],
-    },
-    {
-      id: 'demo-group-trip-sotsugyo',
-      userId: 'demo-circle-2',
-      userName: 'みさき',
-      title: '卒業旅行 金沢（計画中）',
-      startDate: '2027-02-20',
-      endDate: '2027-02-21',
-      status: 'plan',
-      spots: [
-        spot('東京駅', 35.6812, 139.7671, '北陸新幹線で。', 'train'),
-        spot('金沢駅', 36.578, 136.6475, 'バスでひがし茶屋街へ。', 'bus'),
-        spot('ひがし茶屋街', 36.5725, 136.6667, '金箔ソフトを食べたい。', 'walk'),
-        spot('兼六園', 36.5621, 136.6626, ''),
-      ],
-      createdAt: iso(5),
-      groupIds: [CIRCLE_ID],
-    },
-    {
-      id: 'demo-group-trip-hakone',
-      userId: 'demo-family-1',
-      userName: 'お母さん',
-      title: '家族で箱根 1泊2日',
-      startDate: '2026-05-03',
-      endDate: '2026-05-04',
-      status: 'done',
-      spots: [
-        spot('小田原駅', 35.2564, 139.1551, '箱根登山鉄道に乗りかえ。', 'train'),
-        spot('箱根湯本', 35.2327, 139.1056, 'バスで大涌谷へ。', 'bus'),
-        spot('大涌谷', 35.2441, 139.0197, '黒たまごを家族で1つずつ。ロープウェイで湖へ。'),
-        spot('芦ノ湖 桃源台港', 35.2392, 139.0003, '海賊船に乗る。', 'ship'),
-        spot('芦ノ湖 箱根町港', 35.1925, 139.0247, '湖の上は風が気持ちよかった。'),
-      ],
-      createdAt: iso(15),
-      groupIds: [FAMILY_ID],
-    },
-  ];
-  for (const t of trips) if (!getTrip(t.id)) saveTrip(t);
+/** 旅行・投稿を見せているグループのうち、自分が入っているもの（名前と色。メンバーでないグループは RLS で返らない） */
+export async function sharedGroupsVisible(kind: ShareKind, id: string): Promise<GroupBrief[]> {
+  if (!isServerId(id)) return [];
+  const me = await ensureSession();
+  if (!me) return [];
+  const { table, col } = shareTable(kind);
+  const { data, error } = await supabase()
+    .from(table)
+    .select('groups(id, name, color, owner, created_at)')
+    .eq(col, id);
+  if (error) throw error;
+  return (data as unknown as { groups: GroupRow | GroupRow[] | null }[])
+    .map((r) => (Array.isArray(r.groups) ? r.groups[0] : r.groups))
+    .filter((g): g is GroupRow => !!g)
+    .map(toBrief);
+}
 
-  // 家族に見せた写真1枚
-  const POST_ID = 'demo-group-post-owakudani';
-  if (!listPosts().some((p) => p.id === POST_ID)) {
-    const photoId = 'demo-group-photo-owakudani';
-    await photoPut(photoId, placeholderSvg('大涌谷の黒たまご', '#64748b', '#f59e0b'));
-    const pref = nearestPrefecture(35.2441, 139.0197);
-    savePost({
-      id: POST_ID,
-      userId: 'demo-family-2',
-      userName: 'お父さん',
-      title: '大涌谷の黒たまご',
-      comment: '1つ食べると7年長生きするらしい。',
-      date: '2026-05-03',
-      lat: 35.2441,
-      lng: 139.0197,
-      placeName: '大涌谷',
-      prefecture: pref.name,
-      region: pref.region,
-      photoId,
-      createdAt: iso(14),
-      groupIds: [FAMILY_ID],
-    });
+// ---------- この端末に残った試作（依頼9）の片付け ----------
+
+const OLD_KEYS = ['trs_groups', 'trs_seeded_groups_v1'];
+
+/** 試作のグループ（localStorage）と見本（旅行・写真）を端末から消す。サーバーのデータには触らない */
+export function forgetGroupPrototype(): string[] {
+  const photoIds: string[] = [];
+  try {
+    OLD_KEYS.forEach((k) => localStorage.removeItem(k));
+    for (const key of ['trs_trips', 'trs_posts']) {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const v = JSON.parse(raw) as { id?: string; photoId?: string | null }[];
+      if (!Array.isArray(v)) continue;
+      const keep = v.filter((x) => !(typeof x?.id === 'string' && x.id.startsWith('demo-group-')));
+      if (keep.length !== v.length) {
+        v.filter((x) => !keep.includes(x)).forEach((x) => x.photoId && photoIds.push(x.photoId));
+        localStorage.setItem(key, JSON.stringify(keep));
+      }
+    }
+  } catch {
+    // 読めない環境では何もしない
   }
-  localStorage.setItem(SEED_GROUPS_KEY, '1');
+  return photoIds;
 }
