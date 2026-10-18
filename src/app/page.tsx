@@ -11,6 +11,7 @@ import {
   favoriteIds,
   toggleFavorite,
   CURRENT_USER,
+  hasDraft,
 } from '@/lib/store';
 import { photoGetMany } from '@/lib/idb';
 import FilterPanel, { defaultFilters, type Filters } from '@/components/FilterPanel';
@@ -21,6 +22,45 @@ import { SkeletonBlock } from '@/components/Skeleton';
 import type { MapPin } from '@/components/JapanMap';
 import TopTileMap from '@/components/TopTileMap';
 import { useTheme } from '@/lib/useTheme';
+import { useMounted } from '@/lib/useMounted';
+import { takeArrivedByBack } from '@/lib/navTrail';
+
+// トップのスクロール位置（戻ってきたときに元の位置へ戻す）。
+// 一覧は読み込んでから伸びるので、ブラウザ任せだと途中で止まる。読み込み後にこちらで戻す
+const SCROLL_KEY = 'trs_home_scroll';
+
+// 書きかけ（下書き）のお知らせ。入力画面の「戻る」で抜けても続きから書けることを入口で一言だけ知らせる
+const DRAFTS = [
+  { key: 'trip_new_plan', label: 'ルート', href: '/trips/new' },
+  { key: 'trip_new_done', label: '思い出', href: '/trips/new?mode=omoide' },
+  { key: 'post_new', label: '写真', href: '/posts/new' },
+];
+
+function DraftNotice() {
+  const mounted = useMounted();
+  if (!mounted) return null;
+  const items = DRAFTS.filter((d) => hasDraft(d.key));
+  if (items.length === 0) return null;
+  const link = 'inline-flex min-h-11 items-center px-1 font-bold text-link underline underline-offset-2';
+  return (
+    <p className="mt-1.5 flex flex-wrap items-center justify-center gap-x-1 text-sm text-muted">
+      {items.length === 1 ? (
+        <Link href={items[0].href} className={link}>
+          書きかけの{items[0].label}があります（続きを書く）
+        </Link>
+      ) : (
+        <>
+          書きかけ：
+          {items.map((d) => (
+            <Link key={d.key} href={d.href} className={link}>
+              {d.label}の続き
+            </Link>
+          ))}
+        </>
+      )}
+    </p>
+  );
+}
 
 const JapanMap = dynamic(() => import('@/components/JapanMap'), {
   ssr: false,
@@ -42,6 +82,69 @@ export default function Home() {
   const theme = useTheme();
   // タイル地図のパネルから写真を選んだとき、新着の写真のそのカードを一瞬目立たせる
   const [flashId, setFlashId] = useState<string | null>(null);
+  // 前にトップを見ていたときのスクロール位置（開いた瞬間の値。この後のスクロールで上書きされる前に取る）
+  const [savedY] = useState<number | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const y = Number(sessionStorage.getItem(SCROLL_KEY));
+      return Number.isFinite(y) && y > 0 ? y : null;
+    } catch {
+      return null;
+    }
+  });
+  // 戻ってきたときだけ元の位置へ戻す（入力画面の「戻る」か、ブラウザの戻る/進む）
+  const [restore, setRestore] = useState(() => typeof window !== 'undefined' && takeArrivedByBack());
+
+  useEffect(() => {
+    // ブラウザの戻る/進むは、画面が出た少し後に popstate が来ることがある（実測）
+    const t0 = Date.now();
+    const onPop = () => {
+      if (Date.now() - t0 < 1500) setRestore(true);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
+  useEffect(() => {
+    const save = () => {
+      // 次の画面へ移る途中のスクロール（画面が短くなって詰まる・上へ戻す）は覚えない。
+      // そのときはトップの中身がもう外れている
+      if (!document.getElementById('explore')) return;
+      try {
+        sessionStorage.setItem(SCROLL_KEY, String(Math.round(window.scrollY)));
+      } catch {}
+    };
+    // 開いた時点の位置で上書きしておく（前に見たときの古い位置で、先頭から開いた入口が飛ばないように）
+    save();
+    window.addEventListener('scroll', save, { passive: true });
+    return () => window.removeEventListener('scroll', save);
+  }, []);
+
+  useEffect(() => {
+    if (!loaded || !restore || savedY === null) return;
+    // 写真・地図が後から伸びて届かないことがあるので、届くまで（最大1.5秒）毎フレーム合わせる。
+    // 途中で自分でスクロールし始めたらやめる
+    const t0 = performance.now();
+    let id = 0;
+    let stopped = false;
+    const stop = () => {
+      stopped = true;
+    };
+    const tick = () => {
+      if (stopped) return;
+      window.scrollTo({ top: savedY, behavior: 'instant' });
+      if (Math.abs(window.scrollY - savedY) < 2 || performance.now() - t0 > 1500) return;
+      id = requestAnimationFrame(tick);
+    };
+    id = requestAnimationFrame(tick);
+    window.addEventListener('wheel', stop, { passive: true });
+    window.addEventListener('touchstart', stop, { passive: true });
+    return () => {
+      cancelAnimationFrame(id);
+      window.removeEventListener('wheel', stop);
+      window.removeEventListener('touchstart', stop);
+    };
+  }, [loaded, restore, savedY]);
 
   useEffect(() => {
     (async () => {
@@ -150,8 +253,18 @@ export default function Home() {
               思い出をつくる
             </Link>
           </div>
+          <DraftNotice />
           <a
             href="#explore"
+            // 素の #explore への移動は Next が扱えない履歴（state なし）を作り、入力画面から戻っても
+            // 画面が切り替わらなくなる（実測）。履歴を足さずにその場でスクロールだけする
+            onClick={(e) => {
+              e.preventDefault();
+              const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+              document
+                .getElementById('explore')
+                ?.scrollIntoView({ behavior: reduce ? 'instant' : 'smooth', block: 'start' });
+            }}
             className="mx-auto mt-3 flex min-h-11 w-fit items-center gap-1 rounded-full px-4 text-base font-bold text-muted hover:text-ink"
           >
             みんなの旅を見る

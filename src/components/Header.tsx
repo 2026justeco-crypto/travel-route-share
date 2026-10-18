@@ -4,11 +4,16 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import ThemeSwitch from '@/components/ThemeSwitch';
+import { BackButton, ScreenTitle } from '@/components/BackButton';
 import { CameraIcon, LogoIcon, RouteIcon } from '@/components/icons';
+import { INPUT_PAGES } from '@/lib/navTrail';
 
 export default function Header() {
   const pathname = usePathname();
   const isHome = pathname === '/';
+  // 入力画面（作成・編集・投稿）：下部タブが無いので、左端に「戻る」と今の画面名を出す
+  const inputPath = pathname.replace(/\/$/, '') || '/';
+  const isInput = INPUT_PAGES.includes(inputPath);
   // トップでは入口の間は出さず、入口を過ぎて下へスクロールしたら出す
   const [pastHero, setPastHero] = useState(false);
 
@@ -30,6 +35,13 @@ export default function Header() {
         isHome ? 'fixed left-0 right-0' : 'sticky'
       } ${hidden ? '-translate-y-full' : 'translate-y-0'}`}
     >
+      {isInput ? (
+        <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-2">
+          <BackButton pathname={inputPath} />
+          <ScreenTitle pathname={inputPath} />
+          <ThemeSwitch compact className="shrink-0" />
+        </div>
+      ) : (
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-4 py-2">
         <Link href="/" className="flex min-h-11 min-w-0 items-center gap-2">
           <LogoIcon className="h-6 w-6 shrink-0 text-primary" />
@@ -59,6 +71,7 @@ export default function Header() {
           <ThemeSwitch compact />
         </nav>
       </div>
+      )}
     </header>
   );
 }

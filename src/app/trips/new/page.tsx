@@ -15,8 +15,9 @@ function NewTrip() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-xl font-extrabold">{omoide ? '思い出をつくる' : '旅行ルートを作る'}</h1>
-        <p className="mt-1 text-sm text-muted">
+        {/* 画面名はヘッダーに出しているので、見出しは読み上げ用だけにする（同じ文字を2段に並べない） */}
+        <h1 className="sr-only">{omoide ? '思い出をつくる' : '旅行ルートを作る'}</h1>
+        <p className="text-sm text-muted">
           {omoide
             ? '写真を選ぶと、撮った場所と日付が入ります。'
             : '行きたい場所を順番に入れます。'}

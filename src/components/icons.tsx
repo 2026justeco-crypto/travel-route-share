@@ -116,6 +116,13 @@ export function ChevronUpIcon({ className }: P) {
     </svg>
   );
 }
+export function ChevronLeftIcon({ className }: P) {
+  return (
+    <svg {...base} className={className}>
+      <path d="m15 6-6 6 6 6" />
+    </svg>
+  );
+}
 export function ChevronDownIcon({ className }: P) {
   return (
     <svg {...base} className={className}>

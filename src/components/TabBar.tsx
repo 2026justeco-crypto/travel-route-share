@@ -5,8 +5,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { PlusIcon, SearchIcon, StarIcon } from '@/components/icons';
-
-const HIDE_ON = ['/trips/new', '/trips/edit', '/posts/new'];
+import { INPUT_PAGES as HIDE_ON } from '@/lib/navTrail';
 
 export default function TabBar() {
   const pathname = usePathname().replace(/\/$/, '') || '/';

@@ -275,7 +275,8 @@ export default function NewPostPage() {
   const mounted = useMounted();
   return (
     <div className="mx-auto max-w-4xl space-y-4">
-      <h1 className="text-xl font-bold">写真を投稿</h1>
+      {/* 画面名はヘッダーに出しているので、見出しは読み上げ用だけにする */}
+      <h1 className="sr-only">写真を投稿</h1>
       {mounted ? <PostForm /> : <PageSkeleton />}
     </div>
   );

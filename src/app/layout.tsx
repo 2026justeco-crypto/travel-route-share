@@ -4,6 +4,7 @@ import "./globals.css";
 import Header from "@/components/Header";
 import MainShell from "@/components/MainShell";
 import TabBar from "@/components/TabBar";
+import NavTracker from "@/components/NavTracker";
 import { DEFAULT_THEME, THEME_INIT_SCRIPT } from "@/lib/theme";
 
 // 丸ゴシックの予備（A＝ポップ）。Hiragino Maru Gothic / BIZ UDPGothic が無い環境向け。
@@ -44,6 +45,7 @@ export default function RootLayout({
           Travel Route Share（デモ版：データはこのブラウザの中にだけ保存されます）
         </footer>
         <TabBar />
+        <NavTracker />
       </body>
     </html>
   );

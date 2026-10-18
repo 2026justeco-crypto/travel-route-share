@@ -21,7 +21,8 @@ function EditTrip({ id }: { id: string }) {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-bold">旅行ルートを編集</h1>
+      {/* 画面名はヘッダーに出しているので、見出しは読み上げ用だけにする */}
+      <h1 className="sr-only">旅行ルートを編集</h1>
       <p className="text-sm text-muted">
         {trip.status === 'plan'
           ? '旅行が終わったら写真を足して「思い出にする」を押してください。'
