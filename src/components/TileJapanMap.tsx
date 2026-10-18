@@ -21,7 +21,7 @@ export interface TileJapanMapProps {
   selected?: PrefName | null;
   /** 県が押されたとき */
   onSelect?: (name: PrefName) => void;
-  /** 県名を出すか（短い表記：東京都→東京 など） */
+  /** 県名を出すか（短い表記：東京都→東京 など）。出さないときは件数バッジをマスの真ん中に大きく出す */
   showLabels?: boolean;
   /** false なら押せない飾り（入口の背景用）。既定 true */
   interactive?: boolean;
@@ -131,21 +131,38 @@ export default function TileJapanMap({
                   {label}
                 </text>
               )}
-              {hot && (
-                <g>
-                  <circle cx={b.x + b.w - 20} cy={b.y + 20} r={n > 9 ? 24 : 20} className="trs-tile-badge" />
-                  <text
-                    x={b.x + b.w - 20}
-                    y={b.y + 20}
-                    dy="0.36em"
-                    textAnchor="middle"
-                    fontSize={n > 9 ? 22 : 26}
-                    className="trs-tile-badge-text"
-                  >
-                    {badgeText(n)}
-                  </text>
-                </g>
-              )}
+              {hot &&
+                (showLabels ? (
+                  // 県名があるとき：右上に小さく
+                  <g>
+                    <circle cx={b.x + b.w - 20} cy={b.y + 20} r={n > 9 ? 24 : 20} className="trs-tile-badge" />
+                    <text
+                      x={b.x + b.w - 20}
+                      y={b.y + 20}
+                      dy="0.36em"
+                      textAnchor="middle"
+                      fontSize={n > 9 ? 22 : 26}
+                      className="trs-tile-badge-text"
+                    >
+                      {badgeText(n)}
+                    </text>
+                  </g>
+                ) : (
+                  // 県名を出さないとき（スマホ幅）：マスの真ん中に大きく（1マス約23pxでも数字が読めるように）
+                  <g>
+                    <circle cx={b.x + b.w / 2} cy={b.y + b.h / 2} r={40} className="trs-tile-badge" />
+                    <text
+                      x={b.x + b.w / 2}
+                      y={b.y + b.h / 2}
+                      dy="0.36em"
+                      textAnchor="middle"
+                      fontSize={n > 99 ? 30 : n > 9 ? 40 : 50}
+                      className="trs-tile-badge-text"
+                    >
+                      {badgeText(n)}
+                    </text>
+                  </g>
+                ))}
               {interactive && (
                 <rect
                   x={b.x + 7}

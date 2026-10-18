@@ -19,6 +19,8 @@ import ThemeSwitch from '@/components/ThemeSwitch';
 import { RouteIcon, BookIcon, ArrowDownIcon, StarIcon } from '@/components/icons';
 import { SkeletonBlock } from '@/components/Skeleton';
 import type { MapPin } from '@/components/JapanMap';
+import TopTileMap from '@/components/TopTileMap';
+import { useTheme } from '@/lib/useTheme';
 
 const JapanMap = dynamic(() => import('@/components/JapanMap'), {
   ssr: false,
@@ -37,6 +39,9 @@ export default function Home() {
   const [showFilters, setShowFilters] = useState(false);
   // 「最近◯日」の基準時刻（描画のたびに変わらないよう、開いた時点で固定）
   const [now] = useState(() => Date.now());
+  const theme = useTheme();
+  // タイル地図のパネルから写真を選んだとき、新着の写真のそのカードを一瞬目立たせる
+  const [flashId, setFlashId] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -104,6 +109,13 @@ export default function Home() {
     setFavs(favoriteIds());
   };
 
+  // 写真には単独の閲覧ページが無いので、新着の写真のカードへ移って目立たせる
+  const openPost = (postId: string) => {
+    document.getElementById(`post-${postId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setFlashId(postId);
+    window.setTimeout(() => setFlashId((cur) => (cur === postId ? null : cur)), 1600);
+  };
+
   return (
     <>
       {/* 入口：最初の1画面まるごと。データの読み込みを待たずにすぐ押せる */}
@@ -120,7 +132,7 @@ export default function Home() {
         </div>
 
         <div className="relative flex flex-1 flex-col items-center justify-center px-4 text-center">
-          <h1 className="text-[1.75rem] font-extrabold leading-snug text-ink sm:text-4xl">
+          <h1 className="hero-title text-[1.75rem] font-extrabold leading-snug text-ink sm:text-4xl">
             旅行のぜんぶを、
             <br className="sm:hidden" />
             地図にのこそう
@@ -243,13 +255,31 @@ export default function Home() {
         )}
       </section>
 
-      {/* 地図 */}
-      <section>
-        <JapanMap pins={pins} onToggleFavorite={onToggleFavorite} height="480px" />
-        <p className="mt-1.5 text-xs text-muted">
-          ピンを押すと写真が見られます。青いピンはあなたの投稿です。
-        </p>
-      </section>
+      {/* 地図：A＝タイル地図（くわしい地図に切替可）／B＝今までどおりの地球儀の地図 */}
+      {theme === 'a' ? (
+        <TopTileMap
+          posts={visiblePosts}
+          trips={visibleTrips}
+          allTrips={trips}
+          photos={photos}
+          onOpenPost={openPost}
+          detailMap={
+            <>
+              <JapanMap pins={pins} onToggleFavorite={onToggleFavorite} height="480px" />
+              <p className="mt-1.5 text-xs text-muted">
+                ピンを押すと写真が見られます。青いピンはあなたの投稿です。
+              </p>
+            </>
+          }
+        />
+      ) : (
+        <section>
+          <JapanMap pins={pins} onToggleFavorite={onToggleFavorite} height="480px" />
+          <p className="mt-1.5 text-xs text-muted">
+            ピンを押すと写真が見られます。青いピンはあなたの投稿です。
+          </p>
+        </section>
+      )}
 
       {/* 新着投稿 */}
       <section>
@@ -273,7 +303,10 @@ export default function Home() {
               return (
                 <div
                   key={p.id}
-                  className="t-card overflow-hidden transition hover:-translate-y-0.5"
+                  id={`post-${p.id}`}
+                  className={`t-card scroll-mt-20 overflow-hidden transition hover:-translate-y-0.5 ${
+                    flashId === p.id ? 'ring-4 ring-[var(--accent)]' : ''
+                  }`}
                 >
                   <div className="h-28 w-full bg-surface-2">
                     {photo && (

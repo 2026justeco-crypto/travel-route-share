@@ -709,3 +709,37 @@ body {
     transition: none;
   }
 }
+
+/* =========================================================
+   下からせり上がる一覧パネル（トップのタイル地図で県を押したとき・依頼6）
+   ========================================================= */
+.trs-prefsheet {
+  background: var(--surface);
+  border: var(--line-w) solid var(--line);
+  border-bottom: 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  box-shadow: 0 -6px 24px rgba(15, 20, 40, 0.18);
+  transition: translate 220ms ease-out, transform 220ms ease-out;
+}
+@media (min-width: 640px) {
+  .trs-prefsheet {
+    border-bottom: var(--line-w) solid var(--line);
+    border-radius: var(--radius-lg);
+    bottom: 1rem;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .trs-prefsheet {
+    transition: none;
+  }
+}
+
+/* 入口（A）の背景のタイル地図：少し薄く */
+.hero-tilemap {
+  opacity: 0.6;
+}
+/* 見出しの下のタイルが透けても読めるよう、淡い縁取り（A だけ） */
+[data-theme="a"] .hero-title,
+:root:not([data-theme]) .hero-title {
+  text-shadow: 0 0 4px #eaf6ff, 0 0 10px #eaf6ff, 0 0 18px #eaf6ff;
+}
