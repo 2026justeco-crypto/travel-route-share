@@ -9,6 +9,8 @@ import { useMounted } from '@/lib/useMounted';
 function NewTrip() {
   const searchParams = useSearchParams();
   const omoide = searchParams.get('mode') === 'omoide';
+  // グループのページの「このグループに足す」から来たときは、見せる先にそのグループを入れておく
+  const group = searchParams.get('group');
   // 下書き（localStorage）を初期値に使うので、ブラウザで描画するまで骨組みを出す
   const mounted = useMounted();
 
@@ -23,7 +25,7 @@ function NewTrip() {
             : '行きたい場所を順番に入れます。'}
         </p>
       </div>
-      {mounted ? <TripForm initialStatus={omoide ? 'done' : 'plan'} /> : <PageSkeleton />}
+      {mounted ? <TripForm initialStatus={omoide ? 'done' : 'plan'} initialGroupIds={group ? [group] : undefined} /> : <PageSkeleton />}
     </div>
   );
 }

@@ -8,11 +8,13 @@ import type { Trip } from '@/lib/types';
 import { getTrip, saveTrip, deleteTrip, isFavorite, toggleFavorite, CURRENT_USER } from '@/lib/store';
 import { photoGetMany } from '@/lib/idb';
 import type { RoutePoint } from '@/components/JapanMap';
-import { ModeIcon, StarIcon } from '@/components/icons';
+import { LockIcon, ModeIcon, StarIcon } from '@/components/icons';
 import { PageSkeleton } from '@/components/Skeleton';
 import { MODE_COLOR, TRANSPORT_LABEL, routeFromSpots } from '@/lib/transport';
 import { useTheme } from '@/lib/useTheme';
 import { useMounted } from '@/lib/useMounted';
+import { canView, getGroup } from '@/lib/groups';
+import { GroupDot } from '@/components/ShareToPicker';
 
 // スマホでは地図を先に・画面の半分ほどで出す（ルートをすぐ確かめられるように）
 const MAP_HEIGHT = 'min(52vh, 560px)';
@@ -42,6 +44,21 @@ function TripDetail({ id }: { id: string }) {
         旅行が見つかりません。<Link href="/" className="text-link underline">トップへ戻る</Link>
       </div>
     );
+
+  // グループにだけ見せた旅行は、そのグループのメンバーだけが見られる（抜けた人も見られない）
+  if (!canView(trip))
+    return (
+      <div className="rounded-xl border border-dashed border-line-soft bg-surface p-8 text-center text-sm text-muted">
+        この旅行はグループのメンバーだけが見られます。
+        <div className="mt-3">
+          <Link href="/groups" className="font-bold text-link underline">
+            グループを見る
+          </Link>
+        </div>
+      </div>
+    );
+
+  const shareGroups = (trip.groupIds ?? []).map((g) => getGroup(g)).filter((g) => !!g);
 
   const route: RoutePoint[] = routeFromSpots(trip.spots);
 
@@ -88,6 +105,30 @@ function TripDetail({ id }: { id: string }) {
           </div>
           <h1 className="mt-1 text-2xl font-bold">{trip.title}</h1>
           <div className="mt-1 text-sm text-muted">作った人：{trip.userName}</div>
+          {/* 見せる先（依頼9）：自分の旅行は「自分だけ」も出す。グループは押すとそのグループのページへ */}
+          {(isMine || shareGroups.length > 0) && (
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs font-bold text-muted">
+              <span>見せる先：</span>
+              {shareGroups.length === 0 ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5">
+                  <LockIcon className="h-3.5 w-3.5" />
+                  自分だけ
+                </span>
+              ) : (
+                shareGroups.map((g) => (
+                  <Link
+                    key={g.id}
+                    href={`/groups/view?id=${g.id}`}
+                    className="inline-flex min-h-8 items-center gap-1 rounded-full border-2 bg-surface px-2.5 text-ink"
+                    style={{ borderColor: g.color }}
+                  >
+                    <GroupDot color={g.color} className="h-2.5 w-2.5" />
+                    {g.name}
+                  </Link>
+                ))
+              )}
+            </div>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button

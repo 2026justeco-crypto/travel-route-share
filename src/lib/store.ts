@@ -104,7 +104,7 @@ export function toggleFavorite(postId: string): boolean {
 
 // ---------- デモデータ ----------
 
-function placeholderSvg(label: string, c1: string, c2: string): string {
+export function placeholderSvg(label: string, c1: string, c2: string): string {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="500">
   <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
     <stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/>

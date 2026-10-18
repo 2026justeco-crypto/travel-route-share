@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import ThemeSwitch from '@/components/ThemeSwitch';
 import { BackButton, ScreenTitle } from '@/components/BackButton';
-import { CameraIcon, LogoIcon, RouteIcon } from '@/components/icons';
+import { CameraIcon, GroupIcon, LogoIcon, RouteIcon } from '@/components/icons';
 import { INPUT_PAGES } from '@/lib/navTrail';
 
 export default function Header() {
@@ -54,6 +54,14 @@ export default function Header() {
         </Link>
         <nav className="flex shrink-0 items-center gap-2">
           {/* スマホでは下部のタブに任せる（ロゴが切れないように） */}
+          <Link
+            href="/groups"
+            aria-current={pathname.startsWith('/groups') ? 'page' : undefined}
+            className="hidden min-h-11 items-center gap-1.5 rounded-full border-2 border-[var(--line)] px-4 text-sm font-bold text-ink transition hover:opacity-80 sm:inline-flex"
+          >
+            <GroupIcon className="h-5 w-5" />
+            グループ
+          </Link>
           <Link
             href="/posts/new"
             className="hidden min-h-11 items-center gap-1.5 rounded-full border-2 border-[var(--line)] px-4 text-sm font-bold text-ink transition hover:opacity-80 sm:inline-flex"

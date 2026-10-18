@@ -11,6 +11,8 @@ import { searchPlaces, shortLabel, type PlaceHit } from '@/lib/geocode';
 import { CameraIcon, PinIcon, SearchIcon } from '@/components/icons';
 import { PageSkeleton } from '@/components/Skeleton';
 import { useMounted } from '@/lib/useMounted';
+import ShareToPicker from '@/components/ShareToPicker';
+import { keepMyGroupIds } from '@/lib/groups';
 
 const MAP_HEIGHT = 'min(48vh, 360px)';
 
@@ -30,6 +32,7 @@ interface PostDraft {
   date: string;
   pos: { lat: number; lng: number } | null;
   hasPhoto: boolean;
+  groupIds?: string[]; // 見せる先（依頼9）。古い下書きには無い
 }
 
 const FIELD =
@@ -48,6 +51,8 @@ function PostForm() {
   const [message, setMessage] = useState(
     draft ? '前回の入力の続きです。' : '写真に位置が入っていれば、場所は自動で入ります。',
   );
+  // 見せる先：既定は自分だけ（空）
+  const [groupIds, setGroupIds] = useState<string[]>(() => keepMyGroupIds(draft?.groupIds));
   const [saving, setSaving] = useState(false);
   const [searchBusy, setSearchBusy] = useState(false);
   const [hits, setHits] = useState<PlaceHit[] | null>(null);
@@ -61,8 +66,17 @@ function PostForm() {
   useEffect(() => {
     const empty = !title.trim() && !comment.trim() && !placeName.trim() && !pos && !photoDataUrl;
     if (empty) clearDraft(DRAFT_KEY);
-    else saveDraft(DRAFT_KEY, { title, comment, placeName, date, pos, hasPhoto: !!photoDataUrl } satisfies PostDraft);
-  }, [title, comment, placeName, date, pos, photoDataUrl]);
+    else
+      saveDraft(DRAFT_KEY, {
+        title,
+        comment,
+        placeName,
+        date,
+        pos,
+        hasPhoto: !!photoDataUrl,
+        groupIds,
+      } satisfies PostDraft);
+  }, [title, comment, placeName, date, pos, photoDataUrl, groupIds]);
 
   const doSearch = async () => {
     const q = (placeName || title).trim();
@@ -111,6 +125,7 @@ function PostForm() {
       await photoPut(photoId, photoDataUrl);
     }
     const pref = nearestPrefecture(pos.lat, pos.lng);
+    const kept = keepMyGroupIds(groupIds);
     savePost({
       id: uid(),
       userId: CURRENT_USER.id,
@@ -125,6 +140,8 @@ function PostForm() {
       region: pref.region,
       photoId,
       createdAt: new Date().toISOString(),
+      // 見せる先：空＝自分だけ（項目ごと持たない＝古いデータと同じ形）
+      ...(kept.length ? { groupIds: kept } : {}),
     });
     clearDraft(DRAFT_KEY);
     router.push('/');
@@ -204,6 +221,8 @@ function PostForm() {
               />
             </div>
           </div>
+          {/* 見せる先（依頼9）：自分だけ／グループ */}
+          <ShareToPicker value={groupIds} onChange={setGroupIds} />
         </div>
 
         <div className="space-y-2">

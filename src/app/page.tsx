@@ -7,7 +7,6 @@ import type { Post, Trip } from '@/lib/types';
 import {
   listPosts,
   listTrips,
-  seedIfNeeded,
   favoriteIds,
   toggleFavorite,
   CURRENT_USER,
@@ -24,6 +23,7 @@ import TopTileMap from '@/components/TopTileMap';
 import { useTheme } from '@/lib/useTheme';
 import { useMounted } from '@/lib/useMounted';
 import { takeArrivedByBack } from '@/lib/navTrail';
+import { seedAll, showOnTop } from '@/lib/groups';
 
 // トップのスクロール位置（戻ってきたときに元の位置へ戻す）。
 // 一覧は読み込んでから伸びるので、ブラウザ任せだと途中で止まる。読み込み後にこちらで戻す
@@ -148,9 +148,10 @@ export default function Home() {
 
   useEffect(() => {
     (async () => {
-      await seedIfNeeded();
-      const ps = listPosts();
-      const ts = listTrips();
+      await seedAll();
+      // ほかの人がグループにだけ見せた旅行・写真はトップに出さない（グループのページで見る）
+      const ps = listPosts().filter(showOnTop);
+      const ts = listTrips().filter(showOnTop);
       setPosts(ps);
       setTrips(ts);
       setFavs(favoriteIds());

@@ -1,10 +1,10 @@
 'use client';
 
-// スマホ用の下部タブ（Radio Garden の下部タブのイメージ）。さがす／つくる／お気に入り の3つだけ。
+// スマホ用の下部タブ（Radio Garden の下部タブのイメージ）。さがす／つくる／グループ／お気に入り の4つまで（依頼9でグループを足した）。
 // 入力中の画面（作成・編集・投稿）では出さない（保存ボタンと重ねない・迷わせない）。PC幅では出さない（ヘッダーにある）。
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { PlusIcon, SearchIcon, StarIcon } from '@/components/icons';
+import { GroupIcon, PlusIcon, SearchIcon, StarIcon } from '@/components/icons';
 import { INPUT_PAGES as HIDE_ON } from '@/lib/navTrail';
 
 export default function TabBar() {
@@ -34,6 +34,7 @@ export default function TabBar() {
       >
         {tab('/#explore', 'さがす', <SearchIcon className="h-6 w-6" />, pathname === '/')}
         {tab('/trips/new', 'つくる', <PlusIcon className="h-6 w-6" />, false)}
+        {tab('/groups', 'グループ', <GroupIcon className="h-6 w-6" />, pathname.startsWith('/groups'))}
         {tab('/favorites', 'お気に入り', <StarIcon className="h-6 w-6" />, pathname === '/favorites')}
       </nav>
     </>

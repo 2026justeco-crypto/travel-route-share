@@ -33,6 +33,8 @@ export interface Post {
   region: Region;
   photoId: string | null;
   createdAt: string; // ISO
+  /** 見せる先のグループ（依頼9）。無い・空＝自分だけ（古いデータもこの扱い） */
+  groupIds?: string[];
 }
 
 /** 移動手段：徒歩／自転車／車／バス／電車／飛行機／船 */
@@ -60,6 +62,28 @@ export interface Trip {
   endDate: string;
   status: TripStatus;
   spots: TripSpot[];
+  createdAt: string; // ISO
+  /** 見せる先のグループ（依頼9）。無い・空＝自分だけ（古いデータもこの扱い） */
+  groupIds?: string[];
+}
+
+// ---------- グループ（依頼9・試作：この端末の中だけ） ----------
+
+export interface GroupMember {
+  id: string;
+  name: string;
+  joinedAt: string; // ISO
+}
+
+export interface Group {
+  id: string;
+  name: string;
+  /** 目印の色（#rrggbb） */
+  color: string;
+  ownerId: string;
+  /** 招待リンクの合言葉。作り直すと古いリンクは使えなくなる */
+  inviteCode: string;
+  members: GroupMember[];
   createdAt: string; // ISO
 }
 

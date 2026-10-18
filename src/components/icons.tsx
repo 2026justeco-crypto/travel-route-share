@@ -158,3 +158,35 @@ export function LogoIcon({ className }: P) {
     </svg>
   );
 }
+
+/** なかま（グループ）：2人の頭と肩 */
+export function GroupIcon({ className }: P) {
+  return (
+    <svg {...base} className={className}>
+      <circle cx="9" cy="8.5" r="3" />
+      <path d="M3.5 19c0-3.2 2.5-5.5 5.5-5.5s5.5 2.3 5.5 5.5" />
+      <circle cx="16.5" cy="9.5" r="2.4" />
+      <path d="M15.8 14c2.6-.3 4.9 1.6 4.9 4.6" />
+    </svg>
+  );
+}
+
+/** リンク（招待リンク） */
+export function LinkIcon({ className }: P) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.3 1.3" />
+      <path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.3-1.3" />
+    </svg>
+  );
+}
+
+/** 鍵（自分だけ） */
+export function LockIcon({ className }: P) {
+  return (
+    <svg {...base} className={className}>
+      <rect x="5" y="10.5" width="14" height="9.5" rx="2" />
+      <path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5" />
+    </svg>
+  );
+}

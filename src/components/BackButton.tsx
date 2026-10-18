@@ -2,7 +2,8 @@
 
 // 入力画面のヘッダー左端の「＜ 戻る」。
 // サイトの中から来たとき＝ブラウザの戻ると同じ（元の画面・元のスクロール位置へ）。
-// URL を直接開いた・外から来たとき＝新規作成と写真投稿は入口（/）、編集はその旅行の閲覧ページへ。
+// URL を直接開いた・外から来たとき＝新規作成と写真投稿は入口（/）、編集はその旅行の閲覧ページへ、
+// グループの作成・参加はグループの一覧（/groups）へ。
 // 入力の途中でも確認は出さない（下書きは自動で残っている）。
 import { Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -19,6 +20,7 @@ export function BackButton({ pathname }: { pathname: string }) {
       return;
     }
     let to = '/';
+    if (pathname.startsWith('/groups')) to = '/groups';
     if (pathname === '/trips/edit') {
       const id = new URLSearchParams(window.location.search).get('id');
       if (id) to = `/trips/view?id=${encodeURIComponent(id)}`;
@@ -38,6 +40,8 @@ export function BackButton({ pathname }: { pathname: string }) {
 const TITLES: Record<string, string> = {
   '/trips/edit': '旅行ルートを編集',
   '/posts/new': '写真を投稿',
+  '/groups/new': 'グループをつくる',
+  '/groups/join': 'グループに参加',
 };
 
 function TitleInner({ pathname }: { pathname: string }) {

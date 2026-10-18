@@ -9,12 +9,13 @@ import { photoGetMany } from '@/lib/idb';
 import { StarIcon } from '@/components/icons';
 import { PageSkeleton } from '@/components/Skeleton';
 import { useMounted } from '@/lib/useMounted';
+import { canView } from '@/lib/groups';
 
 function Favorites() {
   // ブラウザで描画するときだけ呼ばれる（親で useMounted を待つ）ので、ここで直接読む
   const [favs, setFavs] = useState(() => favoriteIds());
-  const [trips] = useState<Trip[]>(() => listTrips().filter((t) => favs.has(t.id)));
-  const [posts] = useState<Post[]>(() => listPosts().filter((p) => favs.has(p.id)));
+  const [trips] = useState<Trip[]>(() => listTrips().filter((t) => favs.has(t.id) && canView(t)));
+  const [posts] = useState<Post[]>(() => listPosts().filter((p) => favs.has(p.id) && canView(p)));
   const [photos, setPhotos] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {

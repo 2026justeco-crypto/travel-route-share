@@ -25,6 +25,8 @@ import {
   SearchIcon,
 } from '@/components/icons';
 import type { RoutePoint } from '@/components/JapanMap';
+import ShareToPicker from '@/components/ShareToPicker';
+import { keepMyGroupIds } from '@/lib/groups';
 
 interface SpotSearch {
   spotId: string;
@@ -39,6 +41,7 @@ interface Draft {
   endDate: string;
   status: 'plan' | 'done';
   spots: TripSpot[];
+  groupIds?: string[]; // 見せる先（依頼9）。古い下書きには無い
 }
 
 // スマホでは地図を画面の半分ほどに（PCは今までどおり）
@@ -52,6 +55,7 @@ const JapanMap = dynamic(() => import('@/components/JapanMap'), {
 interface Props {
   initial?: Trip; // 編集時に渡す
   initialStatus?: 'plan' | 'done'; // 新規作成時の初期状態（「思い出をつくる」入口用）
+  initialGroupIds?: string[]; // 新規作成時の見せる先（グループのページの「このグループに足す」から来たとき）
 }
 
 const emptySpot = (): TripSpot => ({ id: uid(), name: '', memo: '', lat: null, lng: null, photoId: null });
@@ -65,7 +69,7 @@ const FIELD =
 const CHIP =
   'inline-flex min-h-11 items-center gap-1.5 rounded-full border px-3.5 text-sm font-bold';
 
-export default function TripForm({ initial, initialStatus }: Props) {
+export default function TripForm({ initial, initialStatus, initialGroupIds }: Props) {
   const router = useRouter();
   const draftKey = initial ? `trip_edit_${initial.id}` : `trip_new_${initialStatus ?? 'plan'}`;
   // 下書きがあればそこから再開（リロード・ブラウザの戻るで入力が消えないように）
@@ -82,6 +86,10 @@ export default function TripForm({ initial, initialStatus }: Props) {
   // 新規は最初から1つ空のスポットを出しておく（「＋スポットを追加」を押さなくても書き始められる）
   const [spots, setSpots] = useState<TripSpot[]>(
     () => draft?.spots ?? initial?.spots ?? [emptySpot()],
+  );
+  // 見せる先：既定は自分だけ（空）。抜けた・消えたグループは外して出す
+  const [groupIds, setGroupIds] = useState<string[]>(() =>
+    keepMyGroupIds(draft?.groupIds ?? initial?.groupIds ?? initialGroupIds),
   );
   const [photos, setPhotos] = useState<Map<string, string>>(new Map());
   const [pickTarget, setPickTarget] = useState<string | null>(null);
@@ -108,11 +116,12 @@ export default function TripForm({ initial, initialStatus }: Props) {
         startDate === initial.startDate &&
         endDate === initial.endDate &&
         status === initial.status &&
-        JSON.stringify(spots) === JSON.stringify(initial.spots)
+        JSON.stringify(spots) === JSON.stringify(initial.spots) &&
+        JSON.stringify(groupIds) === JSON.stringify(initial.groupIds ?? [])
       : !title.trim() && !endDate && spots.every(isEmptySpot);
     if (pristine) clearDraft(draftKey);
-    else saveDraft(draftKey, { title, startDate, endDate, status, spots } satisfies Draft);
-  }, [draftKey, initial, title, startDate, endDate, status, spots]);
+    else saveDraft(draftKey, { title, startDate, endDate, status, spots, groupIds } satisfies Draft);
+  }, [draftKey, initial, title, startDate, endDate, status, spots, groupIds]);
 
   const startOver = () => {
     clearDraft(draftKey);
@@ -122,6 +131,7 @@ export default function TripForm({ initial, initialStatus }: Props) {
     setShowEnd(!!initial?.endDate && initial.endDate !== initial.startDate);
     setStatus(initial?.status ?? initialStatus ?? 'plan');
     setSpots(initial?.spots ?? [emptySpot()]);
+    setGroupIds(keepMyGroupIds(initial?.groupIds ?? initialGroupIds));
     setSearch(null);
     setPickTarget(null);
     setRestored(false);
@@ -268,6 +278,10 @@ export default function TripForm({ initial, initialStatus }: Props) {
       }),
       createdAt: initial?.createdAt ?? new Date().toISOString(),
     };
+    // 見せる先：空＝自分だけ（項目ごと持たない＝古いデータと同じ形）
+    const kept = keepMyGroupIds(groupIds);
+    if (kept.length) trip.groupIds = kept;
+    else delete trip.groupIds;
     saveTrip(trip);
     clearDraft(draftKey);
     router.push(`/trips/view?id=${trip.id}`);
@@ -522,6 +536,9 @@ export default function TripForm({ initial, initialStatus }: Props) {
             ＋ スポットを追加
           </button>
         </div>
+
+        {/* 見せる先（依頼9）：自分だけ／グループ */}
+        <ShareToPicker value={groupIds} onChange={setGroupIds} />
 
         {/* 保存ボタン：スマホでは画面の下に貼りつけて、いつでも押せるように */}
         <div className="sticky bottom-0 z-10 -mx-4 border-t border-line-soft bg-bg/95 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:p-0">
