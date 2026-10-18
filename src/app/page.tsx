@@ -4,14 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import type { Post, Trip } from '@/lib/types';
-import {
-  listPosts,
-  listTrips,
-  favoriteIds,
-  toggleFavorite,
-  CURRENT_USER,
-  hasDraft,
-} from '@/lib/store';
+import { listPosts, listTrips, favoriteIds, toggleFavorite, hasDraft } from '@/lib/store';
+import { useAuth } from '@/lib/supabase';
 import { photoGetMany } from '@/lib/idb';
 import FilterPanel, { defaultFilters, type Filters } from '@/components/FilterPanel';
 import HeroBackdrop from '@/components/HeroBackdrop';
@@ -23,7 +17,6 @@ import TopTileMap from '@/components/TopTileMap';
 import { useTheme } from '@/lib/useTheme';
 import { useMounted } from '@/lib/useMounted';
 import { takeArrivedByBack } from '@/lib/navTrail';
-import { seedAll, showOnTop } from '@/lib/groups';
 
 // トップのスクロール位置（戻ってきたときに元の位置へ戻す）。
 // 一覧は読み込んでから伸びるので、ブラウザ任せだと途中で止まる。読み込み後にこちらで戻す
@@ -76,6 +69,8 @@ export default function Home() {
   const [filters, setFilters] = useState<Filters>(defaultFilters());
   const [query, setQuery] = useState('');
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const me = useAuth().userId;
   const [showFilters, setShowFilters] = useState(false);
   // 「最近◯日」の基準時刻（描画のたびに変わらないよう、開いた時点で固定）
   const [now] = useState(() => Date.now());
@@ -147,28 +142,42 @@ export default function Home() {
   }, [loaded, restore, savedY]);
 
   useEffect(() => {
-    (async () => {
-      await seedAll();
-      // ほかの人がグループにだけ見せた旅行・写真はトップに出さない（グループのページで見る）
-      const ps = listPosts().filter(showOnTop);
-      const ts = listTrips().filter(showOnTop);
-      setPosts(ps);
-      setTrips(ts);
-      setFavs(favoriteIds());
-      const ids = [
-        ...ps.map((p) => p.photoId),
-        ...ts.flatMap((t) => t.spots.map((s) => s.photoId)),
-      ].filter((x): x is string => !!x);
-      setPhotos(await photoGetMany(ids));
-      setLoaded(true);
-    })();
+    let alive = true;
+    const load = async () => {
+      try {
+        // サーバーから：全体に見せたもの＋自分のもの（それ以外は RLS で返ってこない）
+        const [ps, ts, fv] = await Promise.all([listPosts(), listTrips(), favoriteIds().catch(() => new Set<string>())]);
+        if (!alive) return;
+        setPosts(ps);
+        setTrips(ts);
+        setFavs(fv);
+        setLoadError(false);
+        const ids = [
+          ...ps.map((p) => p.photoId),
+          ...ts.flatMap((t) => t.spots.map((s) => s.photoId)),
+        ].filter((x): x is string => !!x);
+        const ph = await photoGetMany(ids).catch(() => new Map<string, string>());
+        if (alive) setPhotos(ph);
+      } catch {
+        if (alive) setLoadError(true);
+      }
+      if (alive) setLoaded(true);
+    };
+    void load();
+    // 引っ越し（components/AuthBoot）が終わったら読み直す
+    const onChanged = () => void load();
+    window.addEventListener('trs:data-changed', onChanged);
+    return () => {
+      alive = false;
+      window.removeEventListener('trs:data-changed', onChanged);
+    };
   }, []);
 
   const q = query.trim().toLowerCase();
 
   const visiblePosts = useMemo(() => {
     return posts.filter((p) => {
-      const mine = p.userId === CURRENT_USER.id;
+      const mine = p.userId === me;
       if (mine && !filters.showMine) return false;
       if (!mine && !filters.showOthers) return false;
       if (!filters.regions.has(p.region)) return false;
@@ -184,7 +193,7 @@ export default function Home() {
       }
       return true;
     });
-  }, [posts, filters, favs, q, now]);
+  }, [posts, filters, favs, q, now, me]);
 
   const visibleTrips = useMemo(() => {
     if (!q) return trips;
@@ -204,13 +213,22 @@ export default function Home() {
     userName: p.userName,
     photoUrl: p.photoId ? (photos.get(p.photoId) ?? null) : null,
     date: p.date,
-    isMine: p.userId === CURRENT_USER.id,
+    isMine: p.userId === me,
     isFavorite: favs.has(p.id),
   }));
 
   const onToggleFavorite = (postId: string) => {
-    toggleFavorite(postId);
-    setFavs(favoriteIds());
+    // 先に画面を変えて、サーバーの結果で合わせる（失敗したら元に戻る）
+    setFavs((cur) => {
+      const n = new Set(cur);
+      if (n.has(postId)) n.delete(postId);
+      else n.add(postId);
+      return n;
+    });
+    toggleFavorite(postId, 'post')
+      .then(() => favoriteIds())
+      .then(setFavs)
+      .catch(() => favoriteIds().then(setFavs).catch(() => {}));
   };
 
   // 写真には単独の閲覧ページが無いので、新着の写真のカードへ移って目立たせる
@@ -316,6 +334,10 @@ export default function Home() {
             {[0, 1].map((k) => (
               <SkeletonBlock key={k} className="h-60 w-full" />
             ))}
+          </div>
+        ) : loadError ? (
+          <div className="rounded-xl border border-dashed border-line bg-surface p-8 text-center text-sm text-muted">
+            旅行を読み込めませんでした。通信のよいところで開き直してください。
           </div>
         ) : visibleTrips.length === 0 ? (
           <div className="rounded-xl border border-dashed border-line bg-surface p-8 text-center text-sm text-muted">

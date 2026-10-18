@@ -1,248 +1,292 @@
-import type { Post, Trip, TripSpot } from './types';
-import { nearestPrefecture } from './regions';
-import { photoPut } from './idb';
+'use client';
 
-// ============================================================
-// デモモードのデータ層（MVP）
-//   メタデータ: localStorage / 画像: IndexedDB
-//   β版で同じ関数シグネチャのまま Supabase 実装に差し替える。
-// ============================================================
+// データ層（β版・依頼10）：旅行・投稿・お気に入りは Supabase に置く。
+//   関数の名前と引数は MVP（localStorage 版）にそろえた。読み書きはサーバーなので非同期（Promise）になった。
+//   守りは DB の RLS（supabase/migrations/0001_init.sql）。ここで「出さない」のは見た目の都合だけ。
+//   下書きは今までどおりこの端末（localStorage）に置く。
+//   写真はまだ端末の IndexedDB（依頼11でサーバーへ）。
 
-const POSTS_KEY = 'trs_posts';
-const TRIPS_KEY = 'trs_trips';
-const FAVS_KEY = 'trs_favs';
-const SEED_KEY = 'trs_seeded_v1';
+import type { Post, Region, Trip, TripSpot, Visibility } from './types';
+import { ensureSession, myUserId, supabase } from './supabase';
 
-export const CURRENT_USER = { id: 'me', name: 'あなた' };
+export { uid } from './localStore';
 
-export function uid(): string {
-  return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+/** 自分を表す名前（自分の旅行・投稿の「作った人」に出す） */
+export const ME_NAME = 'あなた';
+
+/** 今の自分の id（ログイン前・オフラインは null） */
+export function currentUserId(): string | null {
+  return myUserId();
 }
 
-function readJson<T>(key: string, fallback: T): T {
+/** サーバーの id（uuid）か。uuid でない id で問い合わせると DB がエラーを返すので先に見分ける */
+export function isServerId(id: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+}
+
+export function newId(): string {
+  const c: Crypto = globalThis.crypto;
+  if (typeof c.randomUUID === 'function') return c.randomUUID();
+  // randomUUID が無い古いブラウザ向け（v4 の形）
+  const b = new Uint8Array(16);
+  c.getRandomValues(b);
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
+// ---------- 行 ⇔ 画面の型 ----------
+
+interface ProfileRef {
+  display_name: string | null;
+}
+
+interface TripRow {
+  id: string;
+  owner: string;
+  title: string;
+  start_date: string | null;
+  end_date: string | null;
+  status: 'plan' | 'done';
+  spots: TripSpot[];
+  visibility: Visibility;
+  is_sample: boolean;
+  created_at: string;
+  profiles?: ProfileRef | ProfileRef[] | null;
+}
+
+interface PostRow {
+  id: string;
+  owner: string;
+  title: string;
+  comment: string;
+  place: string;
+  lat: number;
+  lng: number;
+  prefecture: string;
+  region: string;
+  date: string | null;
+  visibility: Visibility;
+  photo_path: string | null;
+  is_sample: boolean;
+  created_at: string;
+  profiles?: ProfileRef | ProfileRef[] | null;
+}
+
+const TRIP_COLS =
+  'id, owner, title, start_date, end_date, status, spots, visibility, is_sample, created_at, profiles(display_name)';
+const POST_COLS =
+  'id, owner, title, comment, place, lat, lng, prefecture, region, date, visibility, photo_path, is_sample, created_at, profiles(display_name)';
+
+function ownerName(owner: string, p: TripRow['profiles']): string {
+  if (owner === myUserId()) return ME_NAME;
+  const prof = Array.isArray(p) ? p[0] : p;
+  return prof?.display_name || '旅人';
+}
+
+function toTrip(r: TripRow): Trip {
+  return {
+    id: r.id,
+    userId: r.owner,
+    userName: ownerName(r.owner, r.profiles),
+    title: r.title,
+    startDate: r.start_date ?? '',
+    endDate: r.end_date ?? r.start_date ?? '',
+    status: r.status,
+    spots: Array.isArray(r.spots) ? r.spots : [],
+    createdAt: r.created_at,
+    visibility: r.visibility,
+    isSample: r.is_sample,
+  };
+}
+
+// 投稿の写真（依頼11まで）：サーバーにはまだ写真を置けないので、自分の端末で付けた写真の id を投稿ごとに覚えておく
+const POST_PHOTO_KEY = 'trs_post_photo_v1';
+
+function postPhotoMap(): Record<string, string> {
   try {
-    const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
+    const v = JSON.parse(localStorage.getItem(POST_PHOTO_KEY) ?? '{}');
+    return v && typeof v === 'object' ? (v as Record<string, string>) : {};
   } catch {
-    return fallback;
+    return {};
   }
 }
 
-function writeJson(key: string, value: unknown) {
-  localStorage.setItem(key, JSON.stringify(value));
+function setPostPhoto(postId: string, photoId: string | null) {
+  try {
+    const m = postPhotoMap();
+    if (photoId) m[postId] = photoId;
+    else delete m[postId];
+    localStorage.setItem(POST_PHOTO_KEY, JSON.stringify(m));
+  } catch {
+    // 覚えられなくても投稿はできる（写真が出ないだけ）
+  }
+}
+
+function toPost(r: PostRow, photos: Record<string, string>): Post {
+  return {
+    id: r.id,
+    userId: r.owner,
+    userName: ownerName(r.owner, r.profiles),
+    title: r.title,
+    comment: r.comment,
+    date: r.date ?? '',
+    lat: r.lat,
+    lng: r.lng,
+    placeName: r.place,
+    prefecture: r.prefecture,
+    region: r.region as Region,
+    photoId: photos[r.id] ?? null,
+    createdAt: r.created_at,
+    visibility: r.visibility,
+    isSample: r.is_sample,
+  };
+}
+
+/** 書き込みの前に必ずログインを済ませる（できなければエラー） */
+async function needUser(): Promise<string> {
+  const id = await ensureSession();
+  if (!id) throw new Error('offline');
+  return id;
+}
+
+/** 読み込みの前にログインを待つ（できなくても、全体に見せたものは読めるので続ける） */
+async function beforeRead() {
+  await ensureSession();
 }
 
 // ---------- Posts ----------
 
-export function listPosts(): Post[] {
-  return readJson<Post[]>(POSTS_KEY, []).sort((a, b) =>
-    b.createdAt.localeCompare(a.createdAt),
-  );
+/** 見られる投稿すべて（全体に見せたもの＋自分のもの。RLS が絞る）。新しい順 */
+export async function listPosts(): Promise<Post[]> {
+  await beforeRead();
+  const { data, error } = await supabase()
+    .from('posts')
+    .select(POST_COLS)
+    .order('created_at', { ascending: false })
+    .limit(500);
+  if (error) throw error;
+  const photos = postPhotoMap();
+  return (data as unknown as PostRow[]).map((r) => toPost(r, photos));
 }
 
-export function getPost(id: string): Post | undefined {
-  return listPosts().find((p) => p.id === id);
+export async function savePost(post: Post): Promise<Post> {
+  const me = await needUser();
+  const row = {
+    id: isServerId(post.id) ? post.id : newId(),
+    owner: me,
+    title: post.title,
+    comment: post.comment,
+    place: post.placeName,
+    lat: post.lat,
+    lng: post.lng,
+    prefecture: post.prefecture,
+    region: post.region,
+    date: post.date || null,
+    visibility: post.visibility ?? 'public',
+    created_at: post.createdAt,
+  };
+  const { data, error } = await supabase().from('posts').upsert(row).select(POST_COLS).single();
+  if (error) throw error;
+  setPostPhoto(row.id, post.photoId);
+  return toPost(data as unknown as PostRow, postPhotoMap());
 }
 
-export function savePost(post: Post) {
-  const posts = readJson<Post[]>(POSTS_KEY, []);
-  const i = posts.findIndex((p) => p.id === post.id);
-  if (i >= 0) posts[i] = post;
-  else posts.push(post);
-  writeJson(POSTS_KEY, posts);
-}
-
-export function deletePost(id: string) {
-  writeJson(
-    POSTS_KEY,
-    readJson<Post[]>(POSTS_KEY, []).filter((p) => p.id !== id),
-  );
+/** 消せたら true（他人の投稿・無い投稿は false） */
+export async function deletePost(id: string): Promise<boolean> {
+  await needUser();
+  if (!isServerId(id)) return false;
+  const { data, error } = await supabase().from('posts').delete().eq('id', id).select('id');
+  if (error) throw error;
+  if (data.length) setPostPhoto(id, null);
+  return data.length > 0;
 }
 
 // ---------- Trips ----------
 
-export function listTrips(): Trip[] {
-  return readJson<Trip[]>(TRIPS_KEY, []).sort((a, b) =>
-    b.createdAt.localeCompare(a.createdAt),
+/** 見られる旅行すべて（全体に見せたもの＋自分のもの。RLS が絞る）。新しい順 */
+export async function listTrips(): Promise<Trip[]> {
+  await beforeRead();
+  const { data, error } = await supabase()
+    .from('trips')
+    .select(TRIP_COLS)
+    .order('created_at', { ascending: false })
+    .limit(500);
+  if (error) throw error;
+  return (data as unknown as TripRow[]).map(toTrip);
+}
+
+/** 見られない（自分だけ・他人のもの）か無いときは undefined */
+export async function getTrip(id: string): Promise<Trip | undefined> {
+  if (!isServerId(id)) return undefined;
+  await beforeRead();
+  const { data, error } = await supabase().from('trips').select(TRIP_COLS).eq('id', id).maybeSingle();
+  if (error) throw error;
+  return data ? toTrip(data as unknown as TripRow) : undefined;
+}
+
+export async function saveTrip(trip: Trip): Promise<Trip> {
+  const me = await needUser();
+  const row = {
+    id: isServerId(trip.id) ? trip.id : newId(),
+    owner: me,
+    title: trip.title,
+    start_date: trip.startDate || null,
+    end_date: trip.endDate || trip.startDate || null,
+    status: trip.status,
+    spots: trip.spots,
+    visibility: trip.visibility ?? 'public',
+    created_at: trip.createdAt,
+  };
+  const { data, error } = await supabase().from('trips').upsert(row).select(TRIP_COLS).single();
+  if (error) throw error;
+  return toTrip(data as unknown as TripRow);
+}
+
+/** 消せたら true（他人の旅行・無い旅行は false） */
+export async function deleteTrip(id: string): Promise<boolean> {
+  await needUser();
+  if (!isServerId(id)) return false;
+  const { data, error } = await supabase().from('trips').delete().eq('id', id).select('id');
+  if (error) throw error;
+  return data.length > 0;
+}
+
+// ---------- Favorites（本人だけ・RLS） ----------
+
+export type FavKind = 'trip' | 'post';
+
+/** 自分のお気に入り（旅行・投稿の id。id は重ならない） */
+export async function favoriteIds(): Promise<Set<string>> {
+  const me = await ensureSession();
+  if (!me) return new Set();
+  const { data, error } = await supabase().from('favorites').select('trip_id, post_id');
+  if (error) throw error;
+  return new Set(
+    (data as { trip_id: string | null; post_id: string | null }[]).map((r) => (r.trip_id ?? r.post_id) as string),
   );
 }
 
-export function getTrip(id: string): Trip | undefined {
-  return listTrips().find((t) => t.id === id);
+export async function isFavorite(id: string): Promise<boolean> {
+  return (await favoriteIds()).has(id);
 }
 
-export function saveTrip(trip: Trip) {
-  const trips = readJson<Trip[]>(TRIPS_KEY, []);
-  const i = trips.findIndex((t) => t.id === trip.id);
-  if (i >= 0) trips[i] = trip;
-  else trips.push(trip);
-  writeJson(TRIPS_KEY, trips);
-}
-
-export function deleteTrip(id: string) {
-  writeJson(
-    TRIPS_KEY,
-    readJson<Trip[]>(TRIPS_KEY, []).filter((t) => t.id !== id),
-  );
-}
-
-// ---------- Favorites ----------
-
-export function favoriteIds(): Set<string> {
-  return new Set(readJson<string[]>(FAVS_KEY, []));
-}
-
-/** 投稿・旅行どちらの id でもよい（id は重ならない） */
-export function toggleFavorite(postId: string): boolean {
-  const favs = favoriteIds();
-  const nowFav = !favs.has(postId);
-  if (nowFav) favs.add(postId);
-  else favs.delete(postId);
-  writeJson(FAVS_KEY, Array.from(favs));
-  return nowFav;
-}
-
-// ---------- デモデータ ----------
-
-export function placeholderSvg(label: string, c1: string, c2: string): string {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="500">
-  <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-    <stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/>
-  </linearGradient></defs>
-  <rect width="800" height="500" fill="url(#g)"/>
-  <circle cx="640" cy="110" r="55" fill="#ffffff" opacity="0.85"/>
-  <path d="M0 380 L180 240 L320 350 L470 210 L640 340 L800 260 L800 500 L0 500 Z" fill="#ffffff" opacity="0.25"/>
-  <text x="40" y="450" font-family="sans-serif" font-size="40" fill="#ffffff" font-weight="bold">${label}</text>
-</svg>`;
-  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
-}
-
-interface SeedDef {
-  title: string;
-  comment: string;
-  lat: number;
-  lng: number;
-  placeName: string;
-  date: string;
-  colors: [string, string];
-}
-
-const DEMO_POSTS: SeedDef[] = [
-  {
-    title: '札幌時計台',
-    comment: '思ったより街中にあってびっくり。夜のライトアップがきれいでした。',
-    lat: 43.0626,
-    lng: 141.3536,
-    placeName: '札幌市時計台',
-    date: '2026-06-14',
-    colors: ['#3b82f6', '#0ea5e9'],
-  },
-  {
-    title: '浅草・雷門',
-    comment: '朝8時前なら人が少なくて写真が撮りやすい！仲見世で人形焼も。',
-    lat: 35.7112,
-    lng: 139.7965,
-    placeName: '浅草 雷門',
-    date: '2026-06-28',
-    colors: ['#ef4444', '#f97316'],
-  },
-  {
-    title: '大阪城公園',
-    comment: '天守閣までの散歩が気持ちいい。梅林側から回るのがおすすめ。',
-    lat: 34.6873,
-    lng: 135.5262,
-    placeName: '大阪城',
-    date: '2026-07-02',
-    colors: ['#10b981', '#14b8a6'],
-  },
-  {
-    title: '厳島神社の大鳥居',
-    comment: '干潮の時間を調べてから行くと鳥居まで歩けます。',
-    lat: 34.2959,
-    lng: 132.3197,
-    placeName: '厳島神社',
-    date: '2026-05-18',
-    colors: ['#f59e0b', '#ef4444'],
-  },
-  {
-    title: '博多ラーメン',
-    comment: '替え玉2回。駅ナカでも十分おいしいお店が多い。',
-    lat: 33.5902,
-    lng: 130.4207,
-    placeName: '博多駅周辺',
-    date: '2026-07-06',
-    colors: ['#8b5cf6', '#6366f1'],
-  },
-];
-
-// 7つの移動手段をすべて使った見本の旅行（依頼3）。既存の旅行には触らず、別の目印で1回だけ足す
-const SEED_TRIP_KEY = 'trs_seeded_trip_transport_v1';
-const DEMO_TRIP_ID = 'demo-trip-transport';
-
-function seedTransportTripIfNeeded() {
-  if (localStorage.getItem(SEED_TRIP_KEY)) return;
-  if (!getTrip(DEMO_TRIP_ID)) {
-    const spot = (
-      name: string,
-      lat: number,
-      lng: number,
-      memo: string,
-      moveTo?: TripSpot['moveTo'],
-    ): TripSpot => ({ id: uid(), name, memo, lat, lng, photoId: null, ...(moveTo ? { moveTo } : {}) });
-    saveTrip({
-      id: DEMO_TRIP_ID,
-      userId: 'demo',
-      userName: 'デモユーザー',
-      title: '東京から座間味まで 乗りもの全部のせ旅',
-      startDate: '2026-09-20',
-      endDate: '2026-09-24',
-      status: 'done',
-      spots: [
-        spot('東京駅', 35.6812, 139.7671, '新幹線で京都へ。', 'train'),
-        spot('京都駅', 34.9858, 135.7588, '駅から歩いて東山へ。', 'walk'),
-        spot('清水寺', 34.9949, 135.785, '舞台からの眺めが最高。市バスで金閣寺へ。', 'bus'),
-        spot('金閣寺', 35.0394, 135.7292, 'ここからレンタカーで空港へ。', 'car'),
-        spot('大阪国際空港（伊丹）', 34.7855, 135.4382, '飛行機で那覇へ。', 'plane'),
-        spot('那覇空港', 26.2058, 127.646, '自転車を借りて港まで。', 'bike'),
-        spot('泊港（とまりん）', 26.2263, 127.6806, 'フェリーで座間味島へ。', 'ship'),
-        spot('座間味港', 26.229, 127.303, '海の青さにびっくり。'),
-      ],
-      createdAt: new Date(Date.now() - 60000).toISOString(),
-    });
-  }
-  localStorage.setItem(SEED_TRIP_KEY, '1');
-}
-
-export async function seedIfNeeded(): Promise<void> {
-  seedTransportTripIfNeeded();
-  if (localStorage.getItem(SEED_KEY)) return;
-  const now = Date.now();
-  for (let i = 0; i < DEMO_POSTS.length; i++) {
-    const d = DEMO_POSTS[i];
-    const photoId = uid();
-    await photoPut(photoId, placeholderSvg(d.title, d.colors[0], d.colors[1]));
-    const pref = nearestPrefecture(d.lat, d.lng);
-    savePost({
-      id: uid(),
-      userId: 'demo',
-      userName: 'デモユーザー',
-      title: d.title,
-      comment: d.comment,
-      date: d.date,
-      lat: d.lat,
-      lng: d.lng,
-      placeName: d.placeName,
-      prefecture: pref.name,
-      region: pref.region,
-      photoId,
-      createdAt: new Date(now - (DEMO_POSTS.length - i) * 86400000).toISOString(),
-    });
-  }
-  localStorage.setItem(SEED_KEY, '1');
-}
-
-export function isFavorite(id: string): boolean {
-  return favoriteIds().has(id);
+/** 付け外しする。戻り値＝付いた後の状態（true＝お気に入り） */
+export async function toggleFavorite(id: string, kind: FavKind): Promise<boolean> {
+  const me = await needUser();
+  const col = kind === 'trip' ? 'trip_id' : 'post_id';
+  const { data: removed, error: delErr } = await supabase()
+    .from('favorites')
+    .delete()
+    .eq('user_id', me)
+    .eq(col, id)
+    .select('id');
+  if (delErr) throw delErr;
+  if (removed.length > 0) return false;
+  const { error } = await supabase().from('favorites').insert({ user_id: me, [col]: id });
+  if (error) throw error;
+  return true;
 }
 
 // ---------- 下書き（入力の途中をこのブラウザに自動保存。保存・投稿したら消す） ----------
@@ -250,12 +294,17 @@ export function isFavorite(id: string): boolean {
 const DRAFT_PREFIX = 'trs_draft_';
 
 export function loadDraft<T>(key: string): T | null {
-  return readJson<T | null>(DRAFT_PREFIX + key, null);
+  try {
+    const raw = localStorage.getItem(DRAFT_PREFIX + key);
+    return raw ? (JSON.parse(raw) as T) : null;
+  } catch {
+    return null;
+  }
 }
 
 export function saveDraft(key: string, value: unknown) {
   try {
-    writeJson(DRAFT_PREFIX + key, value);
+    localStorage.setItem(DRAFT_PREFIX + key, JSON.stringify(value));
   } catch {
     // 容量いっぱい等で保存できなくても入力は続けられるようにする
   }

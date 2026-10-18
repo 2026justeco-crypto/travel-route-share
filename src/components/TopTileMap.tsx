@@ -12,7 +12,7 @@ import type { Post, Trip } from '@/lib/types';
 import TileJapanMap from '@/components/TileJapanMap';
 import { PREFECTURES } from '@/lib/regions';
 import { countByPrefecture, tripPrefectures, visitedPrefectures } from '@/lib/prefCount';
-import { CURRENT_USER } from '@/lib/store';
+import { useAuth } from '@/lib/supabase';
 import { setTopMapMode, useTopMapMode } from '@/lib/topMapMode';
 import type { PrefName } from '@/lib/tileMap';
 import { RouteIcon } from '@/components/icons';
@@ -56,7 +56,8 @@ export default function TopTileMap({ posts, trips, allTrips, photos, onOpenPost,
   const mapRef = useRef<HTMLDivElement>(null);
 
   const values = useMemo(() => countByPrefecture(posts, trips), [posts, trips]);
-  const visited = useMemo(() => visitedPrefectures(allTrips, CURRENT_USER.id), [allTrips]);
+  const me = useAuth().userId;
+  const visited = useMemo(() => (me ? visitedPrefectures(allTrips, me) : new Set<PrefName>()), [allTrips, me]);
 
   const sheetTrips = useMemo(
     () => (sheetPref ? trips.filter((t) => tripPrefectures(t).has(sheetPref)) : []),

@@ -1,21 +1,53 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import type { Trip } from '@/lib/types';
 import { getTrip } from '@/lib/store';
+import { useAuth } from '@/lib/supabase';
 import TripForm from '@/components/TripForm';
 import { PageSkeleton } from '@/components/Skeleton';
 import { useMounted } from '@/lib/useMounted';
 
 function EditTrip({ id }: { id: string }) {
-  // ブラウザで描画するときだけ呼ばれる（親で useMounted を待つ）ので、ここで直接読む
-  const [trip] = useState(() => getTrip(id) ?? null);
+  // undefined＝読み込み中／null＝無い・見られない
+  const [trip, setTrip] = useState<Trip | null | undefined>(undefined);
+  const [loadError, setLoadError] = useState(false);
+  const auth = useAuth();
+
+  useEffect(() => {
+    let alive = true;
+    getTrip(id)
+      .then((t) => alive && setTrip(t ?? null))
+      .catch(() => {
+        if (!alive) return;
+        setLoadError(true);
+        setTrip(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [id]);
+
+  if (trip === undefined || (trip && auth.status === 'loading')) return <PageSkeleton />;
 
   if (trip === null)
     return (
       <div className="text-sm text-muted">
-        旅行が見つかりません。<Link href="/" className="text-link underline">トップへ戻る</Link>
+        {loadError ? '旅行を読み込めませんでした。通信のよいところで開き直してください。' : '旅行が見つかりません。'}
+        <Link href="/" className="text-link underline">トップへ戻る</Link>
+      </div>
+    );
+
+  // 自分の旅行でなければ編集画面を出さない（出さないのは見た目の都合。守りは RLS）
+  if (trip.userId !== auth.userId)
+    return (
+      <div className="text-sm text-muted">
+        この旅行は作った人だけが編集できます。
+        <Link href={`/trips/view?id=${trip.id}`} className="text-link underline">
+          旅行を見る
+        </Link>
       </div>
     );
 

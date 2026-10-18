@@ -5,14 +5,13 @@ import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { extractGps, fileToDataUrl } from '@/lib/exif';
 import { nearestPrefecture } from '@/lib/regions';
-import { savePost, uid, CURRENT_USER, loadDraft, saveDraft, clearDraft } from '@/lib/store';
+import { savePost, uid, ME_NAME, loadDraft, saveDraft, clearDraft } from '@/lib/store';
 import { photoGet, photoPut } from '@/lib/idb';
 import { searchPlaces, shortLabel, type PlaceHit } from '@/lib/geocode';
-import { CameraIcon, PinIcon, SearchIcon } from '@/components/icons';
+import { CameraIcon, GlobeIcon, LockIcon, PinIcon, SearchIcon } from '@/components/icons';
 import { PageSkeleton } from '@/components/Skeleton';
 import { useMounted } from '@/lib/useMounted';
-import ShareToPicker from '@/components/ShareToPicker';
-import { keepMyGroupIds } from '@/lib/groups';
+import ShareToPicker, { type PickVisibility } from '@/components/ShareToPicker';
 
 const MAP_HEIGHT = 'min(48vh, 360px)';
 
@@ -32,7 +31,7 @@ interface PostDraft {
   date: string;
   pos: { lat: number; lng: number } | null;
   hasPhoto: boolean;
-  groupIds?: string[]; // 見せる先（依頼9）。古い下書きには無い
+  visibility?: PickVisibility; // 見せる先（依頼10）。古い下書きには無い
 }
 
 const FIELD =
@@ -51,8 +50,9 @@ function PostForm() {
   const [message, setMessage] = useState(
     draft ? '前回の入力の続きです。' : '写真に位置が入っていれば、場所は自動で入ります。',
   );
-  // 見せる先：既定は自分だけ（空）
-  const [groupIds, setGroupIds] = useState<string[]>(() => keepMyGroupIds(draft?.groupIds));
+  // 見せる先：既定は「全体」（シアン判断）
+  const [visibility, setVisibility] = useState<PickVisibility>(() => draft?.visibility ?? 'public');
+  const [saveError, setSaveError] = useState('');
   const [saving, setSaving] = useState(false);
   const [searchBusy, setSearchBusy] = useState(false);
   const [hits, setHits] = useState<PlaceHit[] | null>(null);
@@ -74,9 +74,9 @@ function PostForm() {
         date,
         pos,
         hasPhoto: !!photoDataUrl,
-        groupIds,
+        visibility,
       } satisfies PostDraft);
-  }, [title, comment, placeName, date, pos, photoDataUrl, groupIds]);
+  }, [title, comment, placeName, date, pos, photoDataUrl, visibility]);
 
   const doSearch = async () => {
     const q = (placeName || title).trim();
@@ -119,30 +119,38 @@ function PostForm() {
   const submit = async () => {
     if (!canSave || !pos || saving) return;
     setSaving(true);
+    setSaveError('');
     let photoId: string | null = null;
     if (photoDataUrl) {
+      // 写真の画像はまだこの端末の中だけ（依頼11でサーバーへ）
       photoId = uid();
-      await photoPut(photoId, photoDataUrl);
+      await photoPut(photoId, photoDataUrl).catch(() => {
+        photoId = null;
+      });
     }
     const pref = nearestPrefecture(pos.lat, pos.lng);
-    const kept = keepMyGroupIds(groupIds);
-    savePost({
-      id: uid(),
-      userId: CURRENT_USER.id,
-      userName: CURRENT_USER.name,
-      title: title.trim(),
-      comment: comment.trim(),
-      date,
-      lat: pos.lat,
-      lng: pos.lng,
-      placeName: placeName.trim(),
-      prefecture: pref.name,
-      region: pref.region,
-      photoId,
-      createdAt: new Date().toISOString(),
-      // 見せる先：空＝自分だけ（項目ごと持たない＝古いデータと同じ形）
-      ...(kept.length ? { groupIds: kept } : {}),
-    });
+    try {
+      await savePost({
+        id: '',
+        userId: '',
+        userName: ME_NAME,
+        title: title.trim(),
+        comment: comment.trim(),
+        date,
+        lat: pos.lat,
+        lng: pos.lng,
+        placeName: placeName.trim(),
+        prefecture: pref.name,
+        region: pref.region,
+        photoId,
+        createdAt: new Date().toISOString(),
+        visibility,
+      });
+    } catch {
+      setSaving(false);
+      setSaveError('投稿できませんでした。通信のよいところで、もう一度「投稿する」を押してください（入力は消えません）。');
+      return;
+    }
     clearDraft(DRAFT_KEY);
     router.push('/');
   };
@@ -221,8 +229,10 @@ function PostForm() {
               />
             </div>
           </div>
-          {/* 見せる先（依頼9）：自分だけ／グループ */}
-          <ShareToPicker value={groupIds} onChange={setGroupIds} />
+          {/* 見せる先（依頼10）：全体／自分だけ */}
+          <div id="post-visibility">
+            <ShareToPicker value={visibility} onChange={setVisibility} />
+          </div>
         </div>
 
         <div className="space-y-2">
@@ -275,6 +285,24 @@ function PostForm() {
         >
           {saving ? '投稿しています…' : '投稿する'}
         </button>
+        {/* 見せる先は投稿ボタンのそばにいつも出す（押すと選ぶ所へ） */}
+        <a
+          href="#post-visibility"
+          onClick={(e) => {
+            e.preventDefault();
+            document.getElementById('post-visibility')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }}
+          className="mt-1 flex min-h-9 items-center justify-center gap-1 text-sm font-bold text-ink-soft md:justify-start"
+        >
+          {visibility === 'public' ? <GlobeIcon className="h-4 w-4" /> : <LockIcon className="h-4 w-4" />}
+          見せる先：{visibility === 'public' ? '全体' : '自分だけ'}
+          <span className="text-link underline">変える</span>
+        </a>
+        {saveError && (
+          <p role="alert" className="mt-1 text-center text-sm font-bold text-red-500 md:text-left">
+            {saveError}
+          </p>
+        )}
         {!canSave && (
           <p className="mt-1.5 text-center text-sm text-muted md:text-left">
             {!title.trim() && !pos

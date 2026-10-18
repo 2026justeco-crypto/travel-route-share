@@ -1,4 +1,4 @@
-// グループ（依頼9）。★試作：グループはこの端末（このブラウザ）の中だけ。ほかの人の端末には届かない。
+// グループ（依頼9）。★試作（依頼12でサーバー版にする。それまではこの端末の localStorage のまま＝lib/localStore.ts）：グループはこの端末（このブラウザ）の中だけ。ほかの人の端末には届かない。
 //   β版では Supabase の groups / group_members / group_shares に置き換える（設計：logs/docs/travel-route-share/group-sekkei.md）。
 //
 // 見える範囲のルール（試作でも同じ考え方で作る）
@@ -9,16 +9,15 @@
 
 import type { Group, Post, Trip, TripSpot } from './types';
 import {
-  CURRENT_USER,
-  getTrip,
-  listPosts,
-  seedIfNeeded,
-  listTrips,
+  LOCAL_USER as CURRENT_USER,
+  getLocalTrip as getTrip,
+  listLocalPosts as listPosts,
+  listLocalTrips as listTrips,
   placeholderSvg,
-  savePost,
-  saveTrip,
+  saveLocalPost as savePost,
+  saveLocalTrip as saveTrip,
   uid,
-} from './store';
+} from './localStore';
 import { photoPut } from './idb';
 import { nearestPrefecture } from './regions';
 
@@ -192,7 +191,7 @@ const FAMILY_ID = 'demo-group-family';
 
 /** 今までの見本＋グループの見本をまとめて入れる（どの画面から開いても同じものが入る） */
 export async function seedAll(): Promise<void> {
-  await seedIfNeeded();
+  // 今までの見本（旅行・写真）はサーバーの「運営の見本」に移った（依頼10）。ここではグループの見本だけ入れる
   await seedGroupsIfNeeded();
 }
 

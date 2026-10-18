@@ -22,7 +22,7 @@ import {
   regenerateInvite,
   seedAll,
 } from '@/lib/groups';
-import { CURRENT_USER } from '@/lib/store';
+import { LOCAL_USER as CURRENT_USER } from '@/lib/localStore';
 import { photoGetMany } from '@/lib/idb';
 import { markReplace } from '@/lib/navTrail';
 import { useTheme } from '@/lib/useTheme';

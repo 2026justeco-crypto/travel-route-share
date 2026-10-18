@@ -5,10 +5,12 @@ import dynamic from 'next/dynamic';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import type { Trip } from '@/lib/types';
-import { getTrip, saveTrip, deleteTrip, isFavorite, toggleFavorite, CURRENT_USER } from '@/lib/store';
+import { getTrip, saveTrip, deleteTrip, isFavorite, toggleFavorite } from '@/lib/store';
+import { useAuth } from '@/lib/supabase';
+import { getLocalTrip } from '@/lib/localStore';
 import { photoGetMany } from '@/lib/idb';
 import type { RoutePoint } from '@/components/JapanMap';
-import { LockIcon, ModeIcon, StarIcon } from '@/components/icons';
+import { GlobeIcon, LockIcon, ModeIcon, StarIcon } from '@/components/icons';
 import { PageSkeleton } from '@/components/Skeleton';
 import { MODE_COLOR, TRANSPORT_LABEL, routeFromSpots } from '@/lib/transport';
 import { useTheme } from '@/lib/useTheme';
@@ -26,11 +28,46 @@ const JapanMap = dynamic(() => import('@/components/JapanMap'), {
 
 function TripDetail({ id }: { id: string }) {
   const router = useRouter();
-  // ブラウザで描画するときだけ呼ばれる（親で useMounted を待つ）ので、ここで直接読む
-  const [trip, setTrip] = useState<Trip | null>(() => getTrip(id) ?? null);
-  const [fav, setFav] = useState(() => isFavorite(id));
+  // undefined＝読み込み中／null＝無い・見られない（自分だけの旅行を他の人が開いたときも、RLS で「無い」になる）
+  const [trip, setTrip] = useState<Trip | null | undefined>(undefined);
+  // グループの試作（依頼9）の見本は、まだこの端末の中だけにある（依頼12でサーバーへ）
+  const [localOnly, setLocalOnly] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [fav, setFav] = useState(false);
   const [photos, setPhotos] = useState<Map<string, string>>(new Map());
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [actionError, setActionError] = useState('');
   const theme = useTheme();
+  const me = useAuth().userId;
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const t = await getTrip(id);
+        if (!alive) return;
+        if (t) {
+          setTrip(t);
+          const f = await isFavorite(id).catch(() => false);
+          if (alive) setFav(f);
+          return;
+        }
+        const local = getLocalTrip(id);
+        if (local && local.groupIds?.length) {
+          setLocalOnly(true);
+          setTrip(local);
+        } else setTrip(null);
+      } catch {
+        if (alive) {
+          setLoadError(true);
+          setTrip(null);
+        }
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [id]);
 
   const photoKey = (trip?.spots ?? []).map((s) => s.photoId ?? '').join(',');
   useEffect(() => {
@@ -38,15 +75,20 @@ function TripDetail({ id }: { id: string }) {
     if (ids.length) photoGetMany(ids).then(setPhotos);
   }, [photoKey]);
 
+  if (trip === undefined) return <PageSkeleton />;
+
   if (trip === null)
     return (
       <div className="text-sm text-muted">
-        旅行が見つかりません。<Link href="/" className="text-link underline">トップへ戻る</Link>
+        {loadError
+          ? '旅行を読み込めませんでした。通信のよいところで開き直してください。'
+          : '旅行が見つかりません（消されたか、作った人だけが見られる旅行です）。'}
+        <Link href="/" className="text-link underline">トップへ戻る</Link>
       </div>
     );
 
-  // グループにだけ見せた旅行は、そのグループのメンバーだけが見られる（抜けた人も見られない）
-  if (!canView(trip))
+  // グループにだけ見せた旅行（試作・この端末の中だけ）は、そのグループのメンバーだけが見られる
+  if (localOnly && !canView(trip))
     return (
       <div className="rounded-xl border border-dashed border-line-soft bg-surface p-8 text-center text-sm text-muted">
         この旅行はグループのメンバーだけが見られます。
@@ -58,7 +100,7 @@ function TripDetail({ id }: { id: string }) {
       </div>
     );
 
-  const shareGroups = (trip.groupIds ?? []).map((g) => getGroup(g)).filter((g) => !!g);
+  const shareGroups = localOnly ? (trip.groupIds ?? []).map((g) => getGroup(g)).filter((g) => !!g) : [];
 
   const route: RoutePoint[] = routeFromSpots(trip.spots);
 
@@ -70,21 +112,40 @@ function TripDetail({ id }: { id: string }) {
         ]
       : [37.5, 137.0];
 
-  const isMine = trip.userId === CURRENT_USER.id;
+  // 編集・削除のボタンは自分の旅行にだけ出す（出さないのは見た目の都合。守りは RLS）
+  const isMine = !localOnly && !!me && trip.userId === me;
 
-  const markDone = () => {
-    const next = { ...trip, status: 'done' as const };
-    saveTrip(next);
-    setTrip(next);
+  const markDone = async () => {
+    setActionError('');
+    try {
+      setTrip(await saveTrip({ ...trip, status: 'done' }));
+    } catch {
+      setActionError('保存できませんでした。もう一度押してください。');
+    }
   };
 
-  const remove = () => {
-    if (!confirm('この旅行ルートを削除しますか？')) return;
-    deleteTrip(trip.id);
-    router.push('/');
+  const remove = async () => {
+    setActionError('');
+    try {
+      const ok = await deleteTrip(trip.id);
+      if (!ok) throw new Error('not deleted');
+      router.push('/');
+    } catch {
+      setConfirmDelete(false);
+      setActionError('削除できませんでした。もう一度押してください。');
+    }
   };
 
-  const onFav = () => setFav(toggleFavorite(trip.id));
+  const onFav = async () => {
+    if (localOnly) return;
+    const before = fav;
+    setFav(!before);
+    try {
+      setFav(await toggleFavorite(trip.id, 'trip'));
+    } catch {
+      setFav(before);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -105,14 +166,14 @@ function TripDetail({ id }: { id: string }) {
           </div>
           <h1 className="mt-1 text-2xl font-bold">{trip.title}</h1>
           <div className="mt-1 text-sm text-muted">作った人：{trip.userName}</div>
-          {/* 見せる先（依頼9）：自分の旅行は「自分だけ」も出す。グループは押すとそのグループのページへ */}
+          {/* 見せる先：自分の旅行は全体／自分だけを出す。グループ（試作）は押すとそのグループのページへ */}
           {(isMine || shareGroups.length > 0) && (
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs font-bold text-muted">
               <span>見せる先：</span>
               {shareGroups.length === 0 ? (
                 <span className="inline-flex items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5">
-                  <LockIcon className="h-3.5 w-3.5" />
-                  自分だけ
+                  {trip.visibility === 'public' ? <GlobeIcon className="h-3.5 w-3.5" /> : <LockIcon className="h-3.5 w-3.5" />}
+                  {trip.visibility === 'public' ? '全体' : '自分だけ'}
                 </span>
               ) : (
                 shareGroups.map((g) => (
@@ -131,6 +192,7 @@ function TripDetail({ id }: { id: string }) {
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {!localOnly && (
           <button
             type="button"
             onClick={onFav}
@@ -142,6 +204,7 @@ function TripDetail({ id }: { id: string }) {
             <StarIcon filled={fav} className={`h-5 w-5 ${fav ? 'text-amber-500' : ''}`} />
             {fav ? 'お気に入り済み' : 'お気に入り'}
           </button>
+          )}
           {isMine && trip.status === 'plan' && (
             <button
               type="button"
@@ -159,16 +222,41 @@ function TripDetail({ id }: { id: string }) {
               >
                 編集
               </Link>
-              <button
-                type="button"
-                onClick={remove}
-                className="min-h-11 rounded-full border-2 border-red-300 px-4 text-sm font-bold text-red-500 hover:bg-red-500/10"
-              >
-                削除
-              </button>
+              {confirmDelete ? (
+                <span className="inline-flex flex-wrap items-center gap-2 rounded-full bg-surface-2 py-1 pl-3 pr-1 text-sm">
+                  <span className="font-bold text-ink">本当に削除しますか？</span>
+                  <button
+                    type="button"
+                    onClick={remove}
+                    className="min-h-11 rounded-full bg-red-500 px-4 text-sm font-bold text-white"
+                  >
+                    削除する
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDelete(false)}
+                    className="min-h-11 rounded-full border-2 border-line-soft px-4 text-sm font-bold text-muted"
+                  >
+                    やめる
+                  </button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmDelete(true)}
+                  className="min-h-11 rounded-full border-2 border-red-300 px-4 text-sm font-bold text-red-500 hover:bg-red-500/10"
+                >
+                  削除
+                </button>
+              )}
             </>
           )}
         </div>
+        {actionError && (
+          <p role="alert" className="w-full text-sm font-bold text-red-500">
+            {actionError}
+          </p>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">

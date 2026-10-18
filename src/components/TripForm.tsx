@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import type { TransportMode, Trip, TripSpot } from '@/lib/types';
-import { saveTrip, uid, CURRENT_USER, loadDraft, saveDraft, clearDraft } from '@/lib/store';
+import { saveTrip, uid, ME_NAME, loadDraft, saveDraft, clearDraft } from '@/lib/store';
 import { photoPut, photoGetMany } from '@/lib/idb';
 import { extractDate, extractGps, fileToDataUrl } from '@/lib/exif';
 import { searchPlaces, shortLabel, type PlaceHit } from '@/lib/geocode';
@@ -19,14 +19,15 @@ import {
   ChevronDownIcon,
   ChevronUpIcon,
   CloseIcon,
+  GlobeIcon,
+  LockIcon,
   ModeIcon,
   ModeUnsetIcon,
   PinIcon,
   SearchIcon,
 } from '@/components/icons';
 import type { RoutePoint } from '@/components/JapanMap';
-import ShareToPicker from '@/components/ShareToPicker';
-import { keepMyGroupIds } from '@/lib/groups';
+import ShareToPicker, { type PickVisibility } from '@/components/ShareToPicker';
 
 interface SpotSearch {
   spotId: string;
@@ -41,7 +42,7 @@ interface Draft {
   endDate: string;
   status: 'plan' | 'done';
   spots: TripSpot[];
-  groupIds?: string[]; // 見せる先（依頼9）。古い下書きには無い
+  visibility?: PickVisibility; // 見せる先（依頼10）。古い下書きには無い（依頼9の groupIds は読まない）
 }
 
 // スマホでは地図を画面の半分ほどに（PCは今までどおり）
@@ -55,7 +56,7 @@ const JapanMap = dynamic(() => import('@/components/JapanMap'), {
 interface Props {
   initial?: Trip; // 編集時に渡す
   initialStatus?: 'plan' | 'done'; // 新規作成時の初期状態（「思い出をつくる」入口用）
-  initialGroupIds?: string[]; // 新規作成時の見せる先（グループのページの「このグループに足す」から来たとき）
+  initialGroupIds?: string[]; // グループのページの「このグループに足す」から来たとき（グループは依頼12。今は既定を「自分だけ」にするだけ）
 }
 
 const emptySpot = (): TripSpot => ({ id: uid(), name: '', memo: '', lat: null, lng: null, photoId: null });
@@ -87,10 +88,11 @@ export default function TripForm({ initial, initialStatus, initialGroupIds }: Pr
   const [spots, setSpots] = useState<TripSpot[]>(
     () => draft?.spots ?? initial?.spots ?? [emptySpot()],
   );
-  // 見せる先：既定は自分だけ（空）。抜けた・消えたグループは外して出す
-  const [groupIds, setGroupIds] = useState<string[]>(() =>
-    keepMyGroupIds(draft?.groupIds ?? initial?.groupIds ?? initialGroupIds),
-  );
+  // 見せる先：新規の既定は「全体」（シアン判断）。グループのページから来たときだけ、グループ機能ができるまで「自分だけ」
+  const initialVisibility = (): PickVisibility =>
+    initial ? (initial.visibility === 'public' ? 'public' : 'private') : initialGroupIds?.length ? 'private' : 'public';
+  const [visibility, setVisibility] = useState<PickVisibility>(() => draft?.visibility ?? initialVisibility());
+  const [saveError, setSaveError] = useState('');
   const [photos, setPhotos] = useState<Map<string, string>>(new Map());
   const [pickTarget, setPickTarget] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -117,11 +119,11 @@ export default function TripForm({ initial, initialStatus, initialGroupIds }: Pr
         endDate === initial.endDate &&
         status === initial.status &&
         JSON.stringify(spots) === JSON.stringify(initial.spots) &&
-        JSON.stringify(groupIds) === JSON.stringify(initial.groupIds ?? [])
+        visibility === (initial.visibility === 'public' ? 'public' : 'private')
       : !title.trim() && !endDate && spots.every(isEmptySpot);
     if (pristine) clearDraft(draftKey);
-    else saveDraft(draftKey, { title, startDate, endDate, status, spots, groupIds } satisfies Draft);
-  }, [draftKey, initial, title, startDate, endDate, status, spots, groupIds]);
+    else saveDraft(draftKey, { title, startDate, endDate, status, spots, visibility } satisfies Draft);
+  }, [draftKey, initial, title, startDate, endDate, status, spots, visibility]);
 
   const startOver = () => {
     clearDraft(draftKey);
@@ -131,7 +133,7 @@ export default function TripForm({ initial, initialStatus, initialGroupIds }: Pr
     setShowEnd(!!initial?.endDate && initial.endDate !== initial.startDate);
     setStatus(initial?.status ?? initialStatus ?? 'plan');
     setSpots(initial?.spots ?? [emptySpot()]);
-    setGroupIds(keepMyGroupIds(initial?.groupIds ?? initialGroupIds));
+    setVisibility(initialVisibility());
     setSearch(null);
     setPickTarget(null);
     setRestored(false);
@@ -247,9 +249,10 @@ export default function TripForm({ initial, initialStatus, initialGroupIds }: Pr
   const filled = spots.filter((s) => !isEmptySpot(s));
   const valid = filled.length >= 1;
 
-  const submit = () => {
+  const submit = async () => {
     if (!valid || saving) return;
     setSaving(true);
+    setSaveError('');
     // 名前が空のスポットは、位置があれば「◯◯県のあたり」、無ければ番号で呼ぶ
     const named = filled.map((s, i) => ({
       ...s,
@@ -260,8 +263,8 @@ export default function TripForm({ initial, initialStatus, initialGroupIds }: Pr
     const firstTyped = filled.find((s) => s.name.trim())?.name.trim();
     const trip: Trip = {
       id: initial?.id ?? uid(),
-      userId: initial?.userId ?? CURRENT_USER.id,
-      userName: initial?.userName ?? CURRENT_USER.name,
+      userId: initial?.userId ?? '',
+      userName: initial?.userName ?? ME_NAME,
       // 名前が空なら、入力したスポット名か日付から自動で付ける
       title:
         title.trim() ||
@@ -277,14 +280,18 @@ export default function TripForm({ initial, initialStatus, initialGroupIds }: Pr
         return rest;
       }),
       createdAt: initial?.createdAt ?? new Date().toISOString(),
+      visibility,
     };
-    // 見せる先：空＝自分だけ（項目ごと持たない＝古いデータと同じ形）
-    const kept = keepMyGroupIds(groupIds);
-    if (kept.length) trip.groupIds = kept;
-    else delete trip.groupIds;
-    saveTrip(trip);
-    clearDraft(draftKey);
-    router.push(`/trips/view?id=${trip.id}`);
+    try {
+      // サーバーに保存（持ち主はサーバーがログイン中の人に決める。新しい旅行の id もここで決まる）
+      const saved = await saveTrip(trip);
+      clearDraft(draftKey);
+      router.push(`/trips/view?id=${saved.id}`);
+    } catch {
+      // 下書きは残っているので、入力は消えない
+      setSaving(false);
+      setSaveError('保存できませんでした。通信のよいところで、もう一度「保存」を押してください（入力は消えません）。');
+    }
   };
 
   return (
@@ -537,8 +544,10 @@ export default function TripForm({ initial, initialStatus, initialGroupIds }: Pr
           </button>
         </div>
 
-        {/* 見せる先（依頼9）：自分だけ／グループ */}
-        <ShareToPicker value={groupIds} onChange={setGroupIds} />
+        {/* 見せる先（依頼10）：全体／自分だけ */}
+        <div id="trip-visibility">
+          <ShareToPicker value={visibility} onChange={setVisibility} />
+        </div>
 
         {/* 保存ボタン：スマホでは画面の下に貼りつけて、いつでも押せるように */}
         <div className="sticky bottom-0 z-10 -mx-4 border-t border-line-soft bg-bg/95 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:p-0">
@@ -550,6 +559,24 @@ export default function TripForm({ initial, initialStatus, initialGroupIds }: Pr
           >
             {saving ? '保存しています…' : initial ? '更新する' : omoide ? '思い出を保存' : '旅行ルートを保存'}
           </button>
+          {/* 見せる先は保存ボタンのそばにいつも出す（押すと選ぶ所へ） */}
+          <a
+            href="#trip-visibility"
+            onClick={(e) => {
+              e.preventDefault();
+              document.getElementById('trip-visibility')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }}
+            className="mt-1 flex min-h-9 items-center justify-center gap-1 text-sm font-bold text-ink-soft lg:justify-start"
+          >
+            {visibility === 'public' ? <GlobeIcon className="h-4 w-4" /> : <LockIcon className="h-4 w-4" />}
+            見せる先：{visibility === 'public' ? '全体' : '自分だけ'}
+            <span className="text-link underline">変える</span>
+          </a>
+          {saveError && (
+            <p role="alert" className="mt-1 text-center text-sm font-bold text-red-500 lg:text-left">
+              {saveError}
+            </p>
+          )}
           {!valid && (
             <p className="mt-1.5 text-center text-sm text-muted lg:text-left">
               スポットの名前か写真を1つ入れると保存できます。

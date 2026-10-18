@@ -1,35 +1,76 @@
 'use client';
 
-// お気に入り（下部タブの3つ目）。旅行と写真の★をつけたものだけを並べる。
+// お気に入り（下部タブ）。旅行と写真の★をつけたものだけを並べる。
+// お気に入りはサーバーに置く（本人だけが読める・RLS）。見られなくなった旅行・写真は出さない（サーバーが返さない）。
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import type { Post, Trip } from '@/lib/types';
-import { favoriteIds, listPosts, listTrips, toggleFavorite } from '@/lib/store';
+import { favoriteIds, listPosts, listTrips, toggleFavorite, type FavKind } from '@/lib/store';
 import { photoGetMany } from '@/lib/idb';
 import { StarIcon } from '@/components/icons';
 import { PageSkeleton } from '@/components/Skeleton';
 import { useMounted } from '@/lib/useMounted';
-import { canView } from '@/lib/groups';
 
 function Favorites() {
-  // ブラウザで描画するときだけ呼ばれる（親で useMounted を待つ）ので、ここで直接読む
-  const [favs, setFavs] = useState(() => favoriteIds());
-  const [trips] = useState<Trip[]>(() => listTrips().filter((t) => favs.has(t.id) && canView(t)));
-  const [posts] = useState<Post[]>(() => listPosts().filter((p) => favs.has(p.id) && canView(p)));
+  const [favs, setFavs] = useState<Set<string>>(new Set());
+  // 外したものも、この画面にいる間は残して ☆ に戻す（押し直せるように）
+  const [trips, setTrips] = useState<Trip[]>([]);
+  const [posts, setPosts] = useState<Post[]>([]);
   const [photos, setPhotos] = useState<Map<string, string>>(new Map());
+  const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
-    const ids = [
-      ...posts.map((p) => p.photoId),
-      ...trips.flatMap((t) => t.spots.map((s) => s.photoId)),
-    ].filter((x): x is string => !!x);
-    if (ids.length) photoGetMany(ids).then(setPhotos);
-  }, [posts, trips]);
+    let alive = true;
+    (async () => {
+      try {
+        const [fv, ts, ps] = await Promise.all([favoriteIds(), listTrips(), listPosts()]);
+        if (!alive) return;
+        const t = ts.filter((x) => fv.has(x.id));
+        const p = ps.filter((x) => fv.has(x.id));
+        setFavs(fv);
+        setTrips(t);
+        setPosts(p);
+        const ids = [...p.map((x) => x.photoId), ...t.flatMap((x) => x.spots.map((s) => s.photoId))].filter(
+          (x): x is string => !!x,
+        );
+        if (ids.length) {
+          const ph = await photoGetMany(ids).catch(() => new Map<string, string>());
+          if (alive) setPhotos(ph);
+        }
+      } catch {
+        if (alive) setLoadError(true);
+      }
+      if (alive) setLoaded(true);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
 
-  const unfav = (id: string) => {
-    toggleFavorite(id);
-    setFavs(favoriteIds());
+  const unfav = async (id: string, kind: FavKind) => {
+    const flip = (cur: Set<string>) => {
+      const n = new Set(cur);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    };
+    setFavs(flip);
+    try {
+      await toggleFavorite(id, kind);
+    } catch {
+      setFavs(flip);
+    }
   };
+
+  if (!loaded) return <PageSkeleton />;
+
+  if (loadError)
+    return (
+      <div className="rounded-xl border border-dashed border-line-soft bg-surface p-8 text-center text-sm text-muted">
+        お気に入りを読み込めませんでした。通信のよいところで開き直してください。
+      </div>
+    );
 
   if (trips.length === 0 && posts.length === 0)
     return (
@@ -69,7 +110,7 @@ function Favorites() {
                   </Link>
                   <button
                     type="button"
-                    onClick={() => unfav(t.id)}
+                    onClick={() => unfav(t.id, 'trip')}
                     aria-pressed={on}
                     aria-label={on ? 'お気に入りを外す' : 'お気に入りに追加'}
                     className={`flex h-11 w-11 shrink-0 items-center justify-center ${on ? 'text-amber-500' : 'text-muted'}`}
@@ -104,7 +145,7 @@ function Favorites() {
                     </div>
                     <button
                       type="button"
-                      onClick={() => unfav(p.id)}
+                      onClick={() => unfav(p.id, 'post')}
                       aria-pressed={on}
                       aria-label={on ? 'お気に入りを外す' : 'お気に入りに追加'}
                       className={`-m-2.5 flex h-11 w-11 shrink-0 items-center justify-center ${on ? 'text-amber-500' : 'text-muted'}`}
