@@ -8,6 +8,9 @@ import TabBar from "@/components/TabBar";
 import NavTracker from "@/components/NavTracker";
 import AuthBoot from "@/components/AuthBoot";
 import { DEFAULT_THEME, THEME_INIT_SCRIPT } from "@/lib/theme";
+import { CONTACT_URL, OPERATOR } from "@/lib/legal";
+
+const FOOT_LINK = "inline-block min-h-11 px-1.5 leading-[2.75rem] text-link underline";
 
 // 丸ゴシックの予備（A＝ポップ）。Hiragino Maru Gothic / BIZ UDPGothic が無い環境向け。
 // 日本語はunicode-range分割で必要チャンクのみ実行時ロードされるため preload:false
@@ -43,11 +46,26 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col bg-bg text-ink">
         <Header />
         <MainShell>{children}</MainShell>
-        <footer className="border-t border-line bg-surface py-4 text-center text-xs text-muted">
-          Travel Route Share（β版：旅行・投稿・写真はサーバーに保存されます。ほかの人には位置を少しぼかして見せます）
-          <Link href="/settings" className="ml-1 inline-block min-h-11 px-1 leading-[2.75rem] text-link underline">
-            設定（自宅のあたり）
-          </Link>
+        <footer className="border-t border-line bg-surface px-4 py-4 text-center text-xs text-muted">
+          <p>
+            Travel Route Share（β版：旅行・投稿・写真はサーバーに保存されます。ほかの人には位置を少しぼかして見せます）
+          </p>
+          {/* 規約・プライバシー・お問い合わせ（依頼14）。お問い合わせは共用の Googleフォーム（新しいタブ） */}
+          <nav aria-label="このサイトについて" className="mt-1 flex flex-wrap items-center justify-center gap-x-1">
+            <Link href="/terms" className={FOOT_LINK}>
+              利用規約
+            </Link>
+            <Link href="/privacy" className={FOOT_LINK}>
+              プライバシー
+            </Link>
+            <a href={CONTACT_URL} target="_blank" rel="noopener noreferrer" className={FOOT_LINK}>
+              お問い合わせ
+            </a>
+            <Link href="/settings" className={FOOT_LINK}>
+              設定（自宅のあたり・データを消す）
+            </Link>
+          </nav>
+          <p className="mt-1">運営：{OPERATOR}</p>
         </footer>
         <TabBar />
         <NavTracker />

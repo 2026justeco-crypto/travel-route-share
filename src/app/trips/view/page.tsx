@@ -17,6 +17,7 @@ import { useTheme } from '@/lib/useTheme';
 import { useMounted } from '@/lib/useMounted';
 import { sharedGroupsVisible, type GroupBrief } from '@/lib/groups';
 import { GroupDot, ShareIcon } from '@/components/ShareToPicker';
+import ReportLink from '@/components/ReportLink';
 
 // スマホでは地図を先に・画面の半分ほどで出す（ルートをすぐ確かめられるように）
 const MAP_HEIGHT = 'min(52vh, 560px)';
@@ -330,6 +331,13 @@ function TripDetail({ id }: { id: string }) {
           </ol>
         </div>
       </div>
+
+      {/* 通報（依頼14）：ほかの人の旅行にだけ、いちばん下に小さく */}
+      {!isMine && (
+        <div className="flex justify-end border-t border-line-soft pt-2">
+          <ReportLink kind="trip" id={trip.id} title={trip.title} />
+        </div>
+      )}
     </div>
   );
 }

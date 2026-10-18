@@ -3,9 +3,12 @@
 // 設定（依頼13）：自宅のあたりを地図で1点登録する・消す。
 //   入口はヘッダー右端の歯車とフッター（下部タブは増やさない）。保存の前の案内「自宅を登録する」からも来る。
 //   登録した点は本人だけが読める表（profiles_private・RLS）。登録・変更・消すと、サーバーが自分の旅行・投稿のぼかしを作り直す。
+// すべてのデータを消す（依頼14）：2回押し。写真→サーバーの残り（rpc delete_my_data）→この端末の順に消し、ログアウトする（lib/deleteMe.ts）。
 import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
+import Link from 'next/link';
 import { clearHome, getHome, setHome } from '@/lib/home';
+import { deleteAllMyData, type DeleteResult } from '@/lib/deleteMe';
 import { searchPlaces, shortLabel, type PlaceHit } from '@/lib/geocode';
 import { nearestPrefecture } from '@/lib/regions';
 import { PinIcon, SearchIcon } from '@/components/icons';
@@ -211,13 +214,116 @@ function HomeSettings() {
   );
 }
 
+function DeleteAll({ onDone }: { onDone: (r: DeleteResult) => void }) {
+  const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const run = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      onDone(await deleteAllMyData());
+    } catch {
+      setBusy(false);
+      setError('途中で消せませんでした。通信のよいところで、もう一度押してください（続きから消します）。');
+    }
+  };
+
+  return (
+    <section aria-labelledby="delete-all-title" className="space-y-3 rounded-xl border border-line-soft bg-surface p-4">
+      <h2 id="delete-all-title" className="text-lg font-extrabold">
+        すべてのデータを消す
+      </h2>
+      <p className="text-sm text-ink-soft">
+        あなたの旅行・写真・お気に入り・グループの参加・自宅のあたりを、サーバーからすべて消して、この端末からもログアウトします。
+        登録なしで使っているため、消したものは元に戻せません。
+      </p>
+      <p className="text-xs text-muted">
+        あなたが作ったグループは、ほかにメンバーがいれば、いちばん前から入っている人に「作った人」を引き継ぎます（ほかの人の旅行と写真は消えません）。ほかにメンバーがいないグループは消します。
+      </p>
+      {confirm ? (
+        <div className="space-y-2 rounded-xl border-2 border-red-300 bg-surface p-3">
+          <p className="text-sm font-bold text-ink">本当にすべて消しますか？ 元に戻せません。</p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void run()}
+              disabled={busy}
+              className="min-h-11 flex-1 rounded-full bg-red-500 px-4 text-sm font-bold text-white disabled:opacity-60"
+            >
+              {busy ? '消しています…' : 'すべて消す'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirm(false)}
+              disabled={busy}
+              className="min-h-11 flex-1 rounded-full border-2 border-line-soft px-4 text-sm font-bold text-muted"
+            >
+              やめる
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setConfirm(true)}
+          className="min-h-11 w-full rounded-full border-2 border-red-300 px-4 text-sm font-bold text-red-500 hover:bg-red-500/10"
+        >
+          すべてのデータを消す
+        </button>
+      )}
+      {error && (
+        <p role="alert" className="text-sm font-bold text-red-500">
+          {error}
+        </p>
+      )}
+    </section>
+  );
+}
+
+function DeletedCard({ r }: { r: DeleteResult }) {
+  const parts = [
+    `旅行${r.trips}件`,
+    `写真の投稿${r.posts}件`,
+    `写真のファイル${r.photos}枚`,
+    `お気に入り${r.favorites}件`,
+    // 自分しかいなかったグループは、グループごと消えるので参加の行は数に入らない。足して「入っていたグループの数」にする
+    `グループの参加${r.groupMembers + r.groupsDeleted}件`,
+  ];
+  return (
+    <section role="status" className="space-y-3 rounded-xl border border-line-soft bg-surface p-4">
+      <h2 className="text-lg font-extrabold">すべて消しました</h2>
+      <p className="text-sm text-ink-soft">{parts.join('・')}を消し、この端末からもログアウトしました。</p>
+      {r.groupsHandedOver > 0 && (
+        <p className="text-sm text-ink-soft">作ったグループ{r.groupsHandedOver}つは、ほかのメンバーに引き継ぎました。</p>
+      )}
+      <p className="text-xs text-muted">また使うときは、新しい利用者として始まります。</p>
+      <Link href="/" className="t-btn t-btn-secondary w-full">
+        トップへ
+      </Link>
+    </section>
+  );
+}
+
+function SettingsBody() {
+  const [deleted, setDeleted] = useState<DeleteResult | null>(null);
+  if (deleted) return <DeletedCard r={deleted} />;
+  return (
+    <>
+      <HomeSettings />
+      <DeleteAll onDone={setDeleted} />
+    </>
+  );
+}
+
 export default function SettingsPage() {
   const mounted = useMounted();
   return (
     <div className="mx-auto max-w-2xl space-y-4">
       {/* 画面名はヘッダーに出しているので、見出しは読み上げ用だけにする */}
       <h1 className="sr-only">設定</h1>
-      {mounted ? <HomeSettings /> : <PageSkeleton />}
+      {mounted ? <SettingsBody /> : <PageSkeleton />}
     </div>
   );
 }

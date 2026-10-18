@@ -125,6 +125,18 @@ export function useAuth(): AuthState {
   );
 }
 
+/**
+ * 「すべてのデータを消す」の後（依頼14）：この端末のセッションを捨てる（サーバーの利用者はもう消えているので scope は local）。
+ * 先に状態を「未ログイン」にしておき、上の SIGNED_OUT で黙って匿名ログインし直さないようにする
+ * （次に旅行を見たり作ったりしたとき、新しい匿名ユーザーで始まる）
+ */
+export async function signOutAfterDelete() {
+  setState({ status: 'loading', userId: null });
+  await supabase()
+    .auth.signOut({ scope: 'local' })
+    .catch(() => {});
+}
+
 /** もう一度つなぐ（オフラインの表示から） */
 export function retrySession(): Promise<string | null> {
   setState({ status: 'loading', userId: null });

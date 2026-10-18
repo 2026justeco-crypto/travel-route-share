@@ -346,7 +346,7 @@ export default function TripForm({ initial, initialStatus, initialGroupIds }: Pr
       filled.map((s) => (s.lat !== null && s.lng !== null ? { lat: s.lat, lng: s.lng } : null)),
       visibility,
     );
-    if (chk.near.length || chk.hint) {
+    if (chk.near.length || chk.hint || chk.terms) {
       setSaving(false);
       setNotice(chk);
       // 案内は1回だけ（「あとで」でも「登録する」でも、もう出さない）

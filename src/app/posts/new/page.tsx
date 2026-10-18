@@ -160,7 +160,7 @@ function PostForm() {
     setSaving(true);
     setSaveError('');
     const chk = await checkBeforeSave([pos], visibility);
-    if (chk.near.length || chk.hint) {
+    if (chk.near.length || chk.hint || chk.terms) {
       setSaving(false);
       setNotice(chk);
       if (chk.hint) void markHomeHintDone().catch(() => {});

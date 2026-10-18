@@ -15,6 +15,7 @@ import { RouteIcon, BookIcon, ArrowDownIcon, StarIcon } from '@/components/icons
 import { SkeletonBlock } from '@/components/Skeleton';
 import type { MapPin } from '@/components/JapanMap';
 import TopTileMap from '@/components/TopTileMap';
+import ReportLink from '@/components/ReportLink';
 import { useTheme } from '@/lib/useTheme';
 import { useMounted } from '@/lib/useMounted';
 import { takeArrivedByBack } from '@/lib/navTrail';
@@ -481,7 +482,11 @@ export default function Home() {
                     <div className="mt-0.5 text-xs text-muted">
                       {p.prefecture} ・ {p.userName}
                     </div>
-                    <div className="text-xs text-muted">{p.date}</div>
+                    <div className="flex items-center justify-between gap-1 text-xs text-muted">
+                      <span>{p.date}</span>
+                      {/* 通報（依頼14）：ほかの人の写真にだけ小さく */}
+                      {p.userId !== me && <ReportLink kind="post" id={p.id} title={p.title} className="-my-1.5 -mr-1" />}
+                    </div>
                   </div>
                 </div>
               );

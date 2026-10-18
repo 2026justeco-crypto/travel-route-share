@@ -20,6 +20,7 @@ import type { MapPin } from '@/components/JapanMap';
 import TopTileMap from '@/components/TopTileMap';
 import { BookIcon, GroupIcon, LinkIcon, RouteIcon } from '@/components/icons';
 import { PageSkeleton } from '@/components/Skeleton';
+import ReportLink from '@/components/ReportLink';
 
 const JapanMap = dynamic(() => import('@/components/JapanMap'), {
   ssr: false,
@@ -381,6 +382,12 @@ function GroupDetail({ id, created }: { id: string; created: boolean }) {
                     <div className="mt-0.5 text-xs text-muted">
                       {p.prefecture} ・ {p.userName}
                     </div>
+                    {/* 通報（依頼14）：ほかの人の写真にだけ小さく */}
+                    {p.userId !== me && (
+                      <div className="flex justify-end">
+                        <ReportLink kind="post" id={p.id} title={p.title} className="-mb-1.5 -mr-1" />
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -447,6 +454,12 @@ function GroupDetail({ id, created }: { id: string; created: boolean }) {
           </p>
         )}
         {owner && <p className="text-xs text-muted">作った人は抜けられません（消すことはできます）。</p>}
+        {/* 通報（依頼14）：ほかの人が作ったグループにだけ小さく */}
+        {!owner && (
+          <div className="flex justify-end">
+            <ReportLink kind="group" id={group.id} title={group.name} />
+          </div>
+        )}
       </section>
     </div>
   );
