@@ -143,45 +143,45 @@ export default function TripForm({ initial, initialStatus }: Props) {
   return (
     <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
       <div className="space-y-4">
-        <div className="space-y-3 rounded-xl border border-gray-200 bg-white p-4">
+        <div className="space-y-3 rounded-xl border border-line-soft bg-surface p-4">
           <div>
-            <label className="mb-1 block text-sm font-semibold text-gray-700">
+            <label className="mb-1 block text-sm font-semibold text-ink-soft">
               旅行タイトル <span className="text-red-500">*</span>
             </label>
             <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="例：東京1泊2日 下町めぐり"
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
+              className="w-full rounded-lg border border-line-soft px-3 py-2 text-sm outline-none focus:border-blue-400"
             />
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">開始日</label>
+              <label className="mb-1 block text-sm font-semibold text-ink-soft">開始日</label>
               <input
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
+                className="w-full rounded-lg border border-line-soft px-3 py-2 text-sm outline-none focus:border-blue-400"
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">終了日</label>
+              <label className="mb-1 block text-sm font-semibold text-ink-soft">終了日</label>
               <input
                 type="date"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
+                className="w-full rounded-lg border border-line-soft px-3 py-2 text-sm outline-none focus:border-blue-400"
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">この旅行は？</label>
-              <div className="flex rounded-lg border border-gray-200 bg-gray-50 p-0.5">
+              <label className="mb-1 block text-sm font-semibold text-ink-soft">この旅行は？</label>
+              <div className="flex rounded-lg border border-line-soft bg-surface-2 p-0.5">
                 <button
                   type="button"
                   onClick={() => setStatus('plan')}
                   className={`flex-1 rounded-md px-2 py-1.5 text-xs font-semibold ${
-                    status === 'plan' ? 'bg-amber-500 text-white shadow' : 'text-gray-500 hover:bg-gray-100'
+                    status === 'plan' ? 'bg-amber-500 text-white shadow' : 'text-muted hover:bg-surface-2'
                   }`}
                 >
                   🗓 これから行く
@@ -190,7 +190,7 @@ export default function TripForm({ initial, initialStatus }: Props) {
                   type="button"
                   onClick={() => setStatus('done')}
                   className={`flex-1 rounded-md px-2 py-1.5 text-xs font-semibold ${
-                    status === 'done' ? 'bg-emerald-500 text-white shadow' : 'text-gray-500 hover:bg-gray-100'
+                    status === 'done' ? 'bg-emerald-500 text-white shadow' : 'text-muted hover:bg-surface-2'
                   }`}
                 >
                   📖 行ってきた
@@ -205,8 +205,8 @@ export default function TripForm({ initial, initialStatus }: Props) {
           {spots.map((s, i) => (
             <div
               key={s.id}
-              className={`rounded-xl border bg-white p-3 ${
-                pickTarget === s.id ? 'border-blue-400 ring-2 ring-blue-100' : 'border-gray-200'
+              className={`rounded-xl border bg-surface p-3 ${
+                pickTarget === s.id ? 'border-blue-400 ring-2 ring-tint' : 'border-line-soft'
               }`}
             >
               <div className="flex items-center gap-2">
@@ -217,28 +217,28 @@ export default function TripForm({ initial, initialStatus }: Props) {
                   value={s.name}
                   onChange={(e) => updateSpot(s.id, { name: e.target.value })}
                   placeholder="スポット名（例：東京駅）*"
-                  className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm outline-none focus:border-blue-400"
+                  className="w-full rounded-lg border border-line-soft px-3 py-1.5 text-sm outline-none focus:border-blue-400"
                 />
-                <button onClick={() => move(i, -1)} className="rounded border border-gray-200 px-2 py-1 text-xs text-gray-500 hover:bg-gray-50" title="上へ">↑</button>
-                <button onClick={() => move(i, 1)} className="rounded border border-gray-200 px-2 py-1 text-xs text-gray-500 hover:bg-gray-50" title="下へ">↓</button>
-                <button onClick={() => removeSpot(s.id)} className="rounded border border-red-200 px-2 py-1 text-xs text-red-500 hover:bg-red-50" title="削除">✕</button>
+                <button onClick={() => move(i, -1)} className="rounded border border-line-soft px-2 py-1 text-xs text-muted hover:bg-surface-2" title="上へ">↑</button>
+                <button onClick={() => move(i, 1)} className="rounded border border-line-soft px-2 py-1 text-xs text-muted hover:bg-surface-2" title="下へ">↓</button>
+                <button onClick={() => removeSpot(s.id)} className="rounded border border-red-200 px-2 py-1 text-xs text-red-500 hover:bg-red-500/10" title="削除">✕</button>
               </div>
               <textarea
                 value={s.memo}
                 onChange={(e) => updateSpot(s.id, { memo: e.target.value })}
                 rows={2}
                 placeholder="メモ（予定・感想など）"
-                className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm outline-none focus:border-blue-400"
+                className="mt-2 w-full rounded-lg border border-line-soft px-3 py-1.5 text-sm outline-none focus:border-blue-400"
               />
               <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                 <button
                   onClick={() => searchSpot(s.id)}
                   disabled={!s.name.trim() || (search?.busy && search.spotId === s.id)}
-                  className="rounded-full border border-blue-300 px-3 py-1 font-bold text-blue-600 hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-300"
+                  className="rounded-full border border-blue-300 px-3 py-1 font-bold text-link hover:bg-tint disabled:cursor-not-allowed disabled:border-line-soft disabled:text-muted/50"
                 >
                   {search?.busy && search.spotId === s.id ? '検索中…' : '🔍 名前から位置を探す'}
                 </button>
-                <label className="cursor-pointer rounded-full border border-blue-300 px-3 py-1 font-bold text-blue-600 hover:bg-blue-50">
+                <label className="cursor-pointer rounded-full border border-blue-300 px-3 py-1 font-bold text-link hover:bg-tint">
                   📷 写真を追加（位置も自動設定）
                   <input type="file" accept="image/*" className="hidden" onChange={(e) => onSpotPhoto(s.id, e)} />
                 </label>
@@ -247,28 +247,28 @@ export default function TripForm({ initial, initialStatus }: Props) {
                   className={`rounded-full px-3 py-1 font-bold ${
                     pickTarget === s.id
                       ? 'bg-blue-600 text-white'
-                      : 'border border-gray-300 text-gray-600 hover:bg-gray-50'
+                      : 'border border-line-soft text-muted hover:bg-surface-2'
                   }`}
                 >
                   {pickTarget === s.id ? '地図をクリックして位置指定中…' : '📍 地図で指定'}
                 </button>
-                <span className="text-gray-400">
+                <span className="text-muted">
                   {s.lat !== null ? `位置設定済み (${s.lat!.toFixed(3)}, ${s.lng!.toFixed(3)})` : '位置未設定'}
                 </span>
               </div>
               {search && search.spotId === s.id && (search.hits?.length || search.error) ? (
-                <div className="mt-2 space-y-1 rounded-xl bg-blue-50 p-2 text-xs">
+                <div className="mt-2 space-y-1 rounded-xl bg-tint p-2 text-xs">
                   {search.error && <div className="text-red-500">{search.error}</div>}
                   {search.hits?.map((h, hi) => (
                     <button
                       key={hi}
                       onClick={() => pickHit(s.id, h)}
-                      className="block w-full rounded-lg bg-white px-2.5 py-1.5 text-left text-gray-700 shadow-sm hover:bg-blue-100"
+                      className="block w-full rounded-lg bg-surface px-2.5 py-1.5 text-left text-ink-soft shadow-sm hover:bg-tint"
                     >
                       📍 {shortLabel(h.label)}
                     </button>
                   ))}
-                  <div className="text-right text-[10px] text-gray-400">検索: OpenStreetMap Nominatim</div>
+                  <div className="text-right text-[10px] text-muted">検索: OpenStreetMap Nominatim</div>
                 </div>
               ) : null}
               {s.photoId && photos.get(s.photoId) && (
@@ -283,7 +283,7 @@ export default function TripForm({ initial, initialStatus }: Props) {
           ))}
           <button
             onClick={addSpot}
-            className="w-full rounded-xl border-2 border-dashed border-blue-300 bg-blue-50/50 py-3 text-sm font-semibold text-blue-600 hover:bg-blue-50"
+            className="w-full rounded-xl border-2 border-dashed border-blue-300 bg-tint/50 py-3 text-sm font-semibold text-link hover:bg-tint"
           >
             ＋ スポットを追加
           </button>
@@ -298,13 +298,13 @@ export default function TripForm({ initial, initialStatus }: Props) {
             {saving ? '保存中…' : initial ? '更新する' : '🧳 旅行ルートを保存'}
           </button>
           {!valid && (
-            <span className="text-xs text-gray-400">タイトルと、各スポットの名前を入力してください</span>
+            <span className="text-xs text-muted">タイトルと、各スポットの名前を入力してください</span>
           )}
         </div>
       </div>
 
       <div className="space-y-2">
-        <div className="rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-700">
+        <div className="rounded-lg bg-tint px-3 py-2 text-xs text-link">
           {pickTarget
             ? '地図をクリックすると、選択中のスポットに位置が設定されます。'
             : 'スポット名を入れて「🔍 名前から位置を探す」→候補を選ぶだけで位置が入ります。スマホ写真なら「📷 写真を追加」でGPSから自動設定。手動派は「📍 地図で指定」→地図をクリック。'}

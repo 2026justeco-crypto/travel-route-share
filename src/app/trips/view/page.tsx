@@ -30,11 +30,11 @@ function TripDetail() {
     }
   }, [id]);
 
-  if (trip === undefined) return <div className="text-sm text-gray-400">読み込み中…</div>;
+  if (trip === undefined) return <div className="text-sm text-muted">読み込み中…</div>;
   if (trip === null)
     return (
-      <div className="text-sm text-gray-500">
-        旅行が見つかりません。<Link href="/" className="text-blue-600 underline">トップへ戻る</Link>
+      <div className="text-sm text-muted">
+        旅行が見つかりません。<Link href="/" className="text-link underline">トップへ戻る</Link>
       </div>
     );
 
@@ -76,13 +76,13 @@ function TripDetail() {
             >
               {trip.status === 'plan' ? '🗓 これから行く' : '📖 思い出'}
             </span>
-            <span className="text-sm text-gray-400">
+            <span className="text-sm text-muted">
               {trip.startDate}
               {trip.endDate && trip.endDate !== trip.startDate ? ` 〜 ${trip.endDate}` : ''}
             </span>
           </div>
           <h1 className="mt-1 text-2xl font-bold">{trip.title}</h1>
-          <div className="mt-1 text-sm text-gray-500">作成：{trip.userName}</div>
+          <div className="mt-1 text-sm text-muted">作成：{trip.userName}</div>
         </div>
         {isMine && (
           <div className="flex items-center gap-2">
@@ -96,13 +96,13 @@ function TripDetail() {
             )}
             <Link
               href={`/trips/edit?id=${trip.id}`}
-              className="rounded-lg border border-blue-600 px-3 py-1.5 text-sm font-semibold text-blue-600 hover:bg-blue-50"
+              className="rounded-lg border border-blue-600 px-3 py-1.5 text-sm font-semibold text-link hover:bg-tint"
             >
               編集
             </Link>
             <button
               onClick={remove}
-              className="rounded-lg border border-red-300 px-3 py-1.5 text-sm font-semibold text-red-500 hover:bg-red-50"
+              className="rounded-lg border border-red-300 px-3 py-1.5 text-sm font-semibold text-red-500 hover:bg-red-500/10"
             >
               削除
             </button>
@@ -118,21 +118,21 @@ function TripDetail() {
               const photo = s.photoId ? photos.get(s.photoId) : null;
               return (
                 <li key={s.id}>
-                  <div className="rounded-xl border border-gray-200 bg-white p-3">
+                  <div className="rounded-xl border border-line-soft bg-surface p-3">
                     <div className="flex items-center gap-2">
                       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">
                         {i + 1}
                       </span>
                       <span className="font-bold">{s.name}</span>
                       {s.lat === null && (
-                        <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-400">位置未設定</span>
+                        <span className="rounded bg-surface-2 px-1.5 py-0.5 text-xs text-muted">位置未設定</span>
                       )}
                     </div>
                     {photo && (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={photo} alt={s.name} className="mt-2 h-36 w-full rounded-lg object-cover" />
                     )}
-                    {s.memo && <p className="mt-2 whitespace-pre-wrap text-sm text-gray-600">{s.memo}</p>}
+                    {s.memo && <p className="mt-2 whitespace-pre-wrap text-sm text-muted">{s.memo}</p>}
                   </div>
                   {i < trip.spots.length - 1 && (
                     <div className="py-1 text-center text-lg leading-none text-blue-400">↓</div>
@@ -147,7 +147,7 @@ function TripDetail() {
         <div className="lg:col-span-3">
           <JapanMap route={route} center={center} zoom={route.length ? 11 : 5} height="560px" fitRoute roadRoute fitButton />
           {route.length < trip.spots.length && (
-            <p className="mt-1.5 text-xs text-gray-400">
+            <p className="mt-1.5 text-xs text-muted">
               位置未設定のスポットは地図に表示されません（編集画面で設定できます）。
             </p>
           )}
@@ -159,7 +159,7 @@ function TripDetail() {
 
 export default function TripDetailPage() {
   return (
-    <Suspense fallback={<div className="text-sm text-gray-400">読み込み中…</div>}>
+    <Suspense fallback={<div className="text-sm text-muted">読み込み中…</div>}>
       <TripDetail />
     </Suspense>
   );

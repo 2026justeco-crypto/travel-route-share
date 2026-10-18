@@ -93,16 +93,16 @@ export default function NewPostPage() {
       <h1 className="text-xl font-bold">写真を投稿</h1>
 
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-        <div className="space-y-4 rounded-xl border border-gray-200 bg-white p-4">
+        <div className="space-y-4 rounded-xl border border-line-soft bg-surface p-4">
           <div>
-            <label className="mb-1 block text-sm font-semibold text-gray-700">写真</label>
+            <label className="mb-1 block text-sm font-semibold text-ink-soft">写真</label>
             <input
               type="file"
               accept="image/*"
               onChange={onFile}
-              className="block w-full text-sm text-gray-600 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-blue-600 hover:file:bg-blue-100"
+              className="block w-full text-sm text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-tint file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-link hover:file:bg-tint"
             />
-            <p className="mt-1 text-xs text-gray-400">
+            <p className="mt-1 text-xs text-muted">
               保存時に縮小・再エンコードするため、GPS等のExif情報は保存データから取り除かれます。
             </p>
             {photoDataUrl && (
@@ -111,69 +111,69 @@ export default function NewPostPage() {
             )}
           </div>
           <div>
-            <label className="mb-1 block text-sm font-semibold text-gray-700">
+            <label className="mb-1 block text-sm font-semibold text-ink-soft">
               タイトル <span className="text-red-500">*</span>
             </label>
             <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="例：浅草・雷門"
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
+              className="w-full rounded-lg border border-line-soft px-3 py-2 text-sm outline-none focus:border-blue-400"
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-semibold text-gray-700">コメント</label>
+            <label className="mb-1 block text-sm font-semibold text-ink-soft">コメント</label>
             <textarea
               value={comment}
               onChange={(e) => setComment(e.target.value)}
               rows={3}
               placeholder="どんな体験だった？"
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
+              className="w-full rounded-lg border border-line-soft px-3 py-2 text-sm outline-none focus:border-blue-400"
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">場所の名前</label>
+              <label className="mb-1 block text-sm font-semibold text-ink-soft">場所の名前</label>
               <input
                 value={placeName}
                 onChange={(e) => setPlaceName(e.target.value)}
                 placeholder="例：雷門"
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
+                className="w-full rounded-lg border border-line-soft px-3 py-2 text-sm outline-none focus:border-blue-400"
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">投稿日</label>
+              <label className="mb-1 block text-sm font-semibold text-ink-soft">投稿日</label>
               <input
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
+                className="w-full rounded-lg border border-line-soft px-3 py-2 text-sm outline-none focus:border-blue-400"
               />
             </div>
           </div>
         </div>
 
         <div className="space-y-2">
-          <div className="rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-700">{gpsMessage}</div>
+          <div className="rounded-lg bg-tint px-3 py-2 text-xs text-link">{gpsMessage}</div>
           <button
             onClick={doSearch}
             disabled={searchBusy || !(placeName || title).trim()}
-            className="w-full rounded-full border border-blue-300 px-3 py-1.5 text-xs font-bold text-blue-600 hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-300"
+            className="w-full rounded-full border border-blue-300 px-3 py-1.5 text-xs font-bold text-link hover:bg-tint disabled:cursor-not-allowed disabled:border-line-soft disabled:text-muted/50"
           >
             {searchBusy ? '検索中…' : '🔍 場所の名前（またはタイトル）で位置を検索'}
           </button>
           {hits && hits.length > 0 && (
-            <div className="space-y-1 rounded-xl bg-blue-50 p-2 text-xs">
+            <div className="space-y-1 rounded-xl bg-tint p-2 text-xs">
               {hits.map((h, i) => (
                 <button
                   key={i}
                   onClick={() => pickHit(h)}
-                  className="block w-full rounded-lg bg-white px-2.5 py-1.5 text-left text-gray-700 shadow-sm hover:bg-blue-100"
+                  className="block w-full rounded-lg bg-surface px-2.5 py-1.5 text-left text-ink-soft shadow-sm hover:bg-tint"
                 >
                   📍 {shortLabel(h.label)}
                 </button>
               ))}
-              <div className="text-right text-[10px] text-gray-400">検索: OpenStreetMap Nominatim</div>
+              <div className="text-right text-[10px] text-muted">検索: OpenStreetMap Nominatim</div>
             </div>
           )}
           <JapanMap
@@ -185,7 +185,7 @@ export default function NewPostPage() {
             height="360px"
           />
           {pos && (
-            <div className="text-xs text-gray-500">
+            <div className="text-xs text-muted">
               位置：{pos.lat.toFixed(4)}, {pos.lng.toFixed(4)}（{nearestPrefecture(pos.lat, pos.lng).name} 付近）
             </div>
           )}
@@ -200,7 +200,7 @@ export default function NewPostPage() {
         >
           {saving ? '保存中…' : '投稿する'}
         </button>
-        {!pos && <span className="text-xs text-gray-400">位置が未設定です（写真のGPS or 地図クリック）</span>}
+        {!pos && <span className="text-xs text-muted">位置が未設定です（写真のGPS or 地図クリック）</span>}
       </div>
     </div>
   );

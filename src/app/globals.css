@@ -16,6 +16,12 @@
   --surface: #ffffff;
   --text: #2b2d52;
   --text-muted: #5d6088;
+  /* 作成・閲覧・投稿の画面用（A は依頼1以前の見た目に合わせた値） */
+  --surface-2: #f9fafb;
+  --line-soft: #e5e7eb;
+  --text-soft: #374151;
+  --tint: #eff6ff;
+  --link: #2563eb;
 
   --primary: #0f8fdc; /* 主色＝空色（1画面1主色）。白文字で大きい太字のコントラスト3:1以上 */
   --primary-text: #ffffff;
@@ -55,6 +61,11 @@
   --surface: #121829;
   --text: #ffffff;
   --text-muted: #a9b3cc;
+  --surface-2: rgba(255, 255, 255, 0.06);
+  --line-soft: rgba(255, 255, 255, 0.16);
+  --text-soft: #e6ebf5;
+  --tint: rgba(108, 199, 255, 0.14);
+  --link: #8fd0ff;
 
   --primary: #ffffff;
   --primary-text: #05070f;
@@ -95,6 +106,11 @@
   --color-accent: var(--accent);
   --color-on-accent: var(--accent-text);
   --color-line: var(--line);
+  --color-surface-2: var(--surface-2);
+  --color-line-soft: var(--line-soft);
+  --color-ink-soft: var(--text-soft);
+  --color-tint: var(--tint);
+  --color-link: var(--link);
 }
 
 body {
