@@ -6,6 +6,9 @@
 //   下書きは今までどおりこの端末（localStorage）に置く。
 //   写真はサーバーの Storage（依頼11・lib/photos.ts）。旅行・投稿を消したら、付いていた写真も消す。
 //   グループ（依頼12）：見せる先＝groups のとき、どのグループに見せるかは trip_groups / post_groups（lib/groups.ts）。
+//   位置のぼかし（依頼13・0006_bokashi.sql）：trips.spots / posts.lat,lng は「ほかの人に見せる値」（ぼかした点・自宅の近くは null）。
+//     正確な座標は trip_exact / post_exact にあり、持ち主にだけ返る（RLS）。書くときは今までどおり正確な座標を送れば、
+//     サーバーの trigger が分けてぼかす。持ち主の画面では埋め込みで受け取った正確な座標に差し替える。
 
 import type { Post, Region, Trip, TripSpot, Visibility } from './types';
 import { ensureSession, myUserId, supabase } from './supabase';
@@ -56,6 +59,8 @@ interface TripRow {
   is_sample: boolean;
   created_at: string;
   profiles?: ProfileRef | ProfileRef[] | null;
+  /** 正確な座標（持ち主にだけ返る。ほかの人には null） */
+  trip_exact?: { spots: TripSpot[] } | { spots: TripSpot[] }[] | null;
 }
 
 interface PostRow {
@@ -64,8 +69,8 @@ interface PostRow {
   title: string;
   comment: string;
   place: string;
-  lat: number;
-  lng: number;
+  lat: number | null;
+  lng: number | null;
   prefecture: string;
   region: string;
   date: string | null;
@@ -74,12 +79,32 @@ interface PostRow {
   is_sample: boolean;
   created_at: string;
   profiles?: ProfileRef | ProfileRef[] | null;
+  /** 正確な座標（持ち主にだけ返る。ほかの人には null） */
+  post_exact?: { lat: number; lng: number } | { lat: number; lng: number }[] | null;
 }
 
 const TRIP_COLS =
-  'id, owner, title, start_date, end_date, status, spots, visibility, is_sample, created_at, profiles(display_name)';
+  'id, owner, title, start_date, end_date, status, spots, visibility, is_sample, created_at, profiles(display_name), trip_exact(spots)';
 const POST_COLS =
-  'id, owner, title, comment, place, lat, lng, prefecture, region, date, visibility, photo_path, is_sample, created_at, profiles(display_name)';
+  'id, owner, title, comment, place, lat, lng, prefecture, region, date, visibility, photo_path, is_sample, created_at, profiles(display_name), post_exact(lat, lng)';
+
+/** 埋め込みは1件のとき、オブジェクトでも配列でも返りうる */
+function one<T>(v: T | T[] | null | undefined): T | null {
+  return Array.isArray(v) ? (v[0] ?? null) : (v ?? null);
+}
+
+/**
+ * 持ち主の画面用：見せる値（ぼかし）を正確な座標に差し替え、ほかの人には位置を出していないスポット（自宅の近く）を数える。
+ * exact が無い（ほかの人の旅行）ときは見せる値のまま
+ */
+function withExactSpots(shown: TripSpot[], exact: TripSpot[] | null): { spots: TripSpot[]; hidden: string[] } {
+  if (!exact) return { spots: shown, hidden: [] };
+  const shownById = new Map(shown.map((s) => [s.id, s]));
+  const hidden = exact
+    .filter((s) => s.lat !== null && s.lng !== null && shownById.get(s.id)?.lat === null)
+    .map((s) => s.id);
+  return { spots: exact, hidden };
+}
 
 function ownerName(owner: string, p: TripRow['profiles']): string {
   if (owner === myUserId()) return ME_NAME;
@@ -88,6 +113,9 @@ function ownerName(owner: string, p: TripRow['profiles']): string {
 }
 
 function toTrip(r: TripRow): Trip {
+  const shown = Array.isArray(r.spots) ? r.spots : [];
+  const ex = one(r.trip_exact);
+  const { spots, hidden } = withExactSpots(shown, ex && Array.isArray(ex.spots) ? ex.spots : null);
   return {
     id: r.id,
     userId: r.owner,
@@ -96,7 +124,8 @@ function toTrip(r: TripRow): Trip {
     startDate: r.start_date ?? '',
     endDate: r.end_date ?? r.start_date ?? '',
     status: r.status,
-    spots: Array.isArray(r.spots) ? r.spots : [],
+    spots,
+    ...(hidden.length ? { hiddenSpotIds: hidden } : {}),
     createdAt: r.created_at,
     visibility: r.visibility,
     isSample: r.is_sample,
@@ -104,6 +133,7 @@ function toTrip(r: TripRow): Trip {
 }
 
 function toPost(r: PostRow): Post {
+  const ex = one(r.post_exact);
   return {
     id: r.id,
     userId: r.owner,
@@ -111,8 +141,9 @@ function toPost(r: PostRow): Post {
     title: r.title,
     comment: r.comment,
     date: r.date ?? '',
-    lat: r.lat,
-    lng: r.lng,
+    lat: ex ? ex.lat : r.lat,
+    lng: ex ? ex.lng : r.lng,
+    ...(ex && r.lat === null ? { hiddenFromOthers: true } : {}),
     placeName: r.place,
     prefecture: r.prefecture,
     region: r.region as Region,
@@ -194,7 +225,8 @@ export async function savePost(post: Post): Promise<Post> {
   };
   const { data, error } = await supabase().from('posts').upsert(row).select(POST_COLS).single();
   if (error) throw error;
-  return toPost(data as unknown as PostRow);
+  // 返ってくる埋め込み（post_exact）は同じ書き込みの前の値のことがあるので、送った正確な座標で持ち主の形にする
+  return toPost({ ...(data as unknown as PostRow), post_exact: { lat: post.lat as number, lng: post.lng as number } });
 }
 
 /** 消せたら true（他人の投稿・無い投稿は false）。付いていた写真も消す */
@@ -259,7 +291,8 @@ export async function saveTrip(trip: Trip): Promise<Trip> {
   };
   const { data, error } = await supabase().from('trips').upsert(row).select(TRIP_COLS).single();
   if (error) throw error;
-  return toTrip(data as unknown as TripRow);
+  // 返ってくる埋め込み（trip_exact）は同じ書き込みの前の値のことがあるので、送った正確な座標で持ち主の形にする
+  return toTrip({ ...(data as unknown as TripRow), trip_exact: { spots: trip.spots } });
 }
 
 /** 消せたら true（他人の旅行・無い旅行は false）。スポットに付いていた写真も消す */

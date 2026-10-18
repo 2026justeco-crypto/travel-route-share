@@ -267,7 +267,16 @@ function TripDetail({ id }: { id: string }) {
           />
           {route.length < trip.spots.length && (
             <p className="mt-1.5 text-sm text-muted">
-              位置が入っていないスポットは地図に出ません（「編集」で入れられます）。
+              {isMine
+                ? '位置が入っていないスポットは地図に出ません（「編集」で入れられます）。'
+                : '位置を出していないスポットは地図に出ません。'}
+            </p>
+          )}
+          {/* 持ち主にだけ：ほかの人にはぼかした位置で見せていること（依頼13） */}
+          {isMine && route.length > 0 && (
+            <p className="mt-1.5 text-xs text-muted">
+              ほかの人には、位置を少しぼかして見せています（ルートの線もぼかした点どうしで引きます）。
+              {trip.hiddenSpotIds?.length ? '自宅の近くのスポットは、ほかの人には地図に出しません。' : ''}
             </p>
           )}
         </div>
@@ -279,13 +288,18 @@ function TripDetail({ id }: { id: string }) {
               return (
                 <li key={s.id}>
                   <div className="rounded-xl border border-line-soft bg-surface p-3">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">
                         {i + 1}
                       </span>
                       <span className="font-bold">{s.name}</span>
                       {s.lat === null && (
                         <span className="rounded bg-surface-2 px-1.5 py-0.5 text-xs text-muted">位置なし</span>
+                      )}
+                      {isMine && trip.hiddenSpotIds?.includes(s.id) && (
+                        <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-xs font-bold text-amber-600">
+                          自宅の近く：ほかの人には位置を出していません
+                        </span>
                       )}
                     </div>
                     <PhotoImg

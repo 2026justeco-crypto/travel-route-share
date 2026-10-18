@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import ThemeSwitch from '@/components/ThemeSwitch';
 import { BackButton, ScreenTitle } from '@/components/BackButton';
-import { CameraIcon, GroupIcon, LogoIcon, RouteIcon } from '@/components/icons';
+import { CameraIcon, GearIcon, GroupIcon, LogoIcon, RouteIcon } from '@/components/icons';
 import { INPUT_PAGES } from '@/lib/navTrail';
 
 export default function Header() {
@@ -77,6 +77,15 @@ export default function Header() {
             ルートを作る
           </Link>
           <ThemeSwitch compact />
+          {/* 設定（自宅のあたり＝依頼13）。下部タブは増やさず、ヘッダーの右端に小さく置く（スマホでも出す） */}
+          <Link
+            href="/settings"
+            aria-label="設定（自宅のあたり）"
+            title="設定"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-ink-soft transition hover:bg-[var(--switch-bg)]"
+          >
+            <GearIcon className="h-6 w-6" />
+          </Link>
         </nav>
       </div>
       )}

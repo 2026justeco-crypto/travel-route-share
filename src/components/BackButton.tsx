@@ -42,6 +42,7 @@ const TITLES: Record<string, string> = {
   '/posts/new': '写真を投稿',
   '/groups/new': 'グループをつくる',
   '/groups/join': 'グループに参加',
+  '/settings': '設定',
 };
 
 function TitleInner({ pathname }: { pathname: string }) {

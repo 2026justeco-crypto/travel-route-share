@@ -109,4 +109,4 @@ export function takeArrivedByBack(): boolean {
 }
 
 /** 入力画面（下部タブを隠し、ヘッダーに「戻る」を出す画面）。パスは末尾の / なし */
-export const INPUT_PAGES = ['/trips/new', '/trips/edit', '/posts/new', '/groups/new', '/groups/join'];
+export const INPUT_PAGES = ['/trips/new', '/trips/edit', '/posts/new', '/groups/new', '/groups/join', '/settings'];

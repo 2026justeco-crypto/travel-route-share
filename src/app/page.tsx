@@ -214,7 +214,8 @@ export default function Home() {
     );
   }, [trips, q]);
 
-  const pins: MapPin[] = visiblePosts.map((p) => ({
+  // 位置が無い投稿（ほかの人の、自宅の近くの投稿＝依頼13）は地図に立てない
+  const pins: MapPin[] = visiblePosts.flatMap((p) => (p.lat === null || p.lng === null ? [] : [{
     id: p.id,
     lat: p.lat,
     lng: p.lng,
@@ -225,7 +226,7 @@ export default function Home() {
     date: p.date,
     isMine: p.userId === me,
     isFavorite: favs.has(p.id),
-  }));
+  }]));
 
   const onToggleFavorite = (postId: string) => {
     // 先に画面を変えて、サーバーの結果で合わせる（失敗したら元に戻る）

@@ -36,6 +36,8 @@ import {
 } from '@/components/icons';
 import type { RoutePoint } from '@/components/JapanMap';
 import ShareToPicker, { ShareIcon, shareLabel, type ShareValue } from '@/components/ShareToPicker';
+import HomeNotice from '@/components/HomeNotice';
+import { checkBeforeSave, markHomeHintDone, type SaveCheck } from '@/lib/home';
 
 interface SpotSearch {
   spotId: string;
@@ -119,6 +121,8 @@ export default function TripForm({ initial, initialStatus, initialGroupIds }: Pr
   // 新しい旅行の id は最初に決めておく（保存の途中で失敗してやり直しても、2つできないように）
   const [newTripId] = useState(() => newId());
   const [saveError, setSaveError] = useState('');
+  // 保存の前の知らせ（自宅の近く・自宅の登録の案内＝依頼13）。出ている間は保存ボタンの上にカードを出す
+  const [notice, setNotice] = useState<SaveCheck | null>(null);
   const [photos, setPhotos] = useState<Map<string, string>>(new Map());
   const [pickTarget, setPickTarget] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -333,8 +337,27 @@ export default function TripForm({ initial, initialStatus, initialGroupIds }: Pr
   const filled = spots.filter((s) => !isEmptySpot(s));
   const valid = filled.length >= 1;
 
+  // 保存の前に「自宅の近くか」「自宅の登録の案内を出すか」を確かめる（1回目の「保存」）。知らせが無ければそのまま保存
   const submit = async () => {
     if (!valid || saving) return;
+    setSaving(true);
+    setSaveError('');
+    const chk = await checkBeforeSave(
+      filled.map((s) => (s.lat !== null && s.lng !== null ? { lat: s.lat, lng: s.lng } : null)),
+      visibility,
+    );
+    if (chk.near.length || chk.hint) {
+      setSaving(false);
+      setNotice(chk);
+      // 案内は1回だけ（「あとで」でも「登録する」でも、もう出さない）
+      if (chk.hint) void markHomeHintDone().catch(() => {});
+      return;
+    }
+    await save();
+  };
+
+  const save = async () => {
+    setNotice(null);
     setSaving(true);
     setSaveError('');
     // 名前が空のスポットは、位置があれば「◯◯県のあたり」、無ければ番号で呼ぶ
@@ -656,6 +679,14 @@ export default function TripForm({ initial, initialStatus, initialGroupIds }: Pr
 
         {/* 保存ボタン：スマホでは画面の下に貼りつけて、いつでも押せるように */}
         <div className="sticky bottom-0 z-10 -mx-4 border-t border-line-soft bg-bg/95 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:p-0">
+          {notice && (
+            <HomeNotice
+              check={notice}
+              names={notice.near.map((i) => filled[i]?.name.trim() || `スポット${i + 1}`)}
+              onContinue={() => void save()}
+              onBack={() => setNotice(null)}
+            />
+          )}
           <button
             type="button"
             onClick={submit}

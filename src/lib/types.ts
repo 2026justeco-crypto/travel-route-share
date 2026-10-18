@@ -29,8 +29,9 @@ export interface Post {
   title: string;
   comment: string;
   date: string; // 投稿日 (YYYY-MM-DD)
-  lat: number;
-  lng: number;
+  /** 持ち主には正確な位置、ほかの人にはぼかした位置。自宅の近く（依頼13）はほかの人には null */
+  lat: number | null;
+  lng: number | null;
   placeName: string;
   prefecture: string;
   region: Region;
@@ -42,6 +43,8 @@ export interface Post {
   visibility?: Visibility;
   /** 運営の見本 */
   isSample?: boolean;
+  /** 持ち主の画面だけ：自宅の近くなので、ほかの人には位置を出していない（依頼13） */
+  hiddenFromOthers?: boolean;
 }
 
 /** 移動手段：徒歩／自転車／車／バス／電車／飛行機／船 */
@@ -76,6 +79,8 @@ export interface Trip {
   visibility?: Visibility;
   /** 運営の見本 */
   isSample?: boolean;
+  /** 持ち主の画面だけ：自宅の近くなので、ほかの人には位置を出していないスポットの id（依頼13） */
+  hiddenSpotIds?: string[];
 }
 
 // ---------- グループ（依頼9で試作・依頼12でサーバー版） ----------

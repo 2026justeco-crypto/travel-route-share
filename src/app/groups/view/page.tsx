@@ -169,7 +169,8 @@ function GroupDetail({ id, created }: { id: string; created: boolean }) {
   }, [id]);
 
   const pins: MapPin[] = useMemo(() => {
-    const fromPosts = posts.map((p) => ({
+    // 位置が無い投稿（ほかの人の、自宅の近くの投稿＝依頼13）は地図に立てない
+    const fromPosts = posts.flatMap((p) => (p.lat === null || p.lng === null ? [] : [{
       id: p.id,
       lat: p.lat,
       lng: p.lng,
@@ -179,7 +180,7 @@ function GroupDetail({ id, created }: { id: string; created: boolean }) {
       photoUrl: p.photoId ? (photos.get(p.photoId) ?? null) : null,
       date: p.date,
       isMine: p.userId === me,
-    }));
+    }]));
     // 旅行は最初に位置が入っているスポットに1本だけ立てる
     const fromTrips = trips.flatMap((t) => {
       const s = t.spots.find((x) => x.lat !== null && x.lng !== null);

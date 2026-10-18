@@ -15,6 +15,8 @@ import { CameraIcon, PinIcon, SearchIcon } from '@/components/icons';
 import { PageSkeleton } from '@/components/Skeleton';
 import { useMounted } from '@/lib/useMounted';
 import ShareToPicker, { ShareIcon, shareLabel, type ShareValue } from '@/components/ShareToPicker';
+import HomeNotice from '@/components/HomeNotice';
+import { checkBeforeSave, markHomeHintDone, type SaveCheck } from '@/lib/home';
 
 const MAP_HEIGHT = 'min(48vh, 360px)';
 
@@ -149,8 +151,27 @@ function PostForm() {
 
   const canSave = !!title.trim() && !!pos;
 
+  // 保存の前の知らせ（自宅の近く・自宅の登録の案内＝依頼13）
+  const [notice, setNotice] = useState<SaveCheck | null>(null);
+
+  // 1回目の「投稿する」：自宅の近くか・案内を出すかを確かめる。知らせが無ければそのまま投稿
   const submit = async () => {
     if (!canSave || !pos || saving) return;
+    setSaving(true);
+    setSaveError('');
+    const chk = await checkBeforeSave([pos], visibility);
+    if (chk.near.length || chk.hint) {
+      setSaving(false);
+      setNotice(chk);
+      if (chk.hint) void markHomeHintDone().catch(() => {});
+      return;
+    }
+    await save();
+  };
+
+  const save = async () => {
+    setNotice(null);
+    if (!canSave || !pos) return;
     setSaving(true);
     setSaveError('');
     let photoId: string | null = null;
@@ -313,6 +334,14 @@ function PostForm() {
       </div>
 
       <div className="sticky bottom-0 z-10 -mx-4 border-t border-line-soft bg-bg/95 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:p-0">
+        {notice && (
+          <HomeNotice
+            check={notice}
+            names={notice.near.map(() => placeName.trim() || title.trim() || 'この場所')}
+            onContinue={() => void save()}
+            onBack={() => setNotice(null)}
+          />
+        )}
         <button
           type="button"
           onClick={submit}

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { M_PLUS_Rounded_1c } from "next/font/google";
 import "./globals.css";
+import Link from "next/link";
 import Header from "@/components/Header";
 import MainShell from "@/components/MainShell";
 import TabBar from "@/components/TabBar";
@@ -43,7 +44,10 @@ export default function RootLayout({
         <Header />
         <MainShell>{children}</MainShell>
         <footer className="border-t border-line bg-surface py-4 text-center text-xs text-muted">
-          Travel Route Share（β版：旅行と写真の投稿はサーバーに保存されます。写真の画像はまだこの端末の中だけです）
+          Travel Route Share（β版：旅行・投稿・写真はサーバーに保存されます。ほかの人には位置を少しぼかして見せます）
+          <Link href="/settings" className="ml-1 inline-block min-h-11 px-1 leading-[2.75rem] text-link underline">
+            設定（自宅のあたり）
+          </Link>
         </footer>
         <TabBar />
         <NavTracker />
