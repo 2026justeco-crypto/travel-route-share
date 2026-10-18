@@ -15,7 +15,7 @@ export async function fetchRoadRoute(
     const data = await res.json();
     const geom: unknown = data?.routes?.[0]?.geometry?.coordinates;
     if (!Array.isArray(geom) || geom.length < 2) return null;
-    // GeoJSONは [lng, lat] 順なので Leaflet 用に [lat, lng] へ変換
+    // GeoJSONは [lng, lat] 順なので [lat, lng] へ変換（呼び出し側の JapanMap で戻して描く）
     return (geom as [number, number][]).map((c) => [c[1], c[0]]);
   } catch {
     return null;

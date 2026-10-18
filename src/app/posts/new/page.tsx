@@ -9,7 +9,10 @@ import { savePost, uid, CURRENT_USER } from '@/lib/store';
 import { photoPut } from '@/lib/idb';
 import { searchPlaces, shortLabel, type PlaceHit } from '@/lib/geocode';
 
-const JapanMap = dynamic(() => import('@/components/JapanMap'), { ssr: false });
+const JapanMap = dynamic(() => import('@/components/JapanMap'), {
+  ssr: false,
+  loading: () => <div className="trs-map trs-map-loading h-[360px]" />,
+});
 
 export default function NewPostPage() {
   const router = useRouter();

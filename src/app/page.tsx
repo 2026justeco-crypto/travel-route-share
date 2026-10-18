@@ -21,11 +21,8 @@ import type { MapPin } from '@/components/JapanMap';
 
 const JapanMap = dynamic(() => import('@/components/JapanMap'), {
   ssr: false,
-  loading: () => (
-    <div className="flex h-[480px] items-center justify-center rounded-xl border border-gray-200 bg-gray-100 text-gray-400">
-      地図を読み込み中…
-    </div>
-  ),
+  // 読み込み中は地図の背景色だけ先に出す（白い箱やちらつきを出さない）
+  loading: () => <div className="trs-map trs-map-loading h-[480px]" />,
 });
 
 export default function Home() {
@@ -174,7 +171,7 @@ export default function Home() {
       <section>
         <JapanMap pins={pins} onToggleFavorite={onToggleFavorite} height="480px" />
         <p className="mt-1.5 text-xs text-muted">
-          ピンは投稿者のアイコン（名前の頭文字）。青いピンが自分の投稿です。クリックすると写真と詳細が見られます。
+          ピンを押すと写真と詳細が見られます。青いピンが自分の投稿です。
         </p>
       </section>
 

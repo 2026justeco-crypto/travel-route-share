@@ -9,7 +9,10 @@ import { getTrip, saveTrip, deleteTrip, CURRENT_USER } from '@/lib/store';
 import { photoGetMany } from '@/lib/idb';
 import type { RoutePoint } from '@/components/JapanMap';
 
-const JapanMap = dynamic(() => import('@/components/JapanMap'), { ssr: false });
+const JapanMap = dynamic(() => import('@/components/JapanMap'), {
+  ssr: false,
+  loading: () => <div className="trs-map trs-map-loading h-[560px]" />,
+});
 
 function TripDetail() {
   const searchParams = useSearchParams();

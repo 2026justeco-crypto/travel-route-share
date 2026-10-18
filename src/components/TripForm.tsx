@@ -17,7 +17,10 @@ interface SpotSearch {
   error: string;
 }
 
-const JapanMap = dynamic(() => import('@/components/JapanMap'), { ssr: false });
+const JapanMap = dynamic(() => import('@/components/JapanMap'), {
+  ssr: false,
+  loading: () => <div className="trs-map trs-map-loading h-[520px]" />,
+});
 
 interface Props {
   initial?: Trip; // 編集時に渡す

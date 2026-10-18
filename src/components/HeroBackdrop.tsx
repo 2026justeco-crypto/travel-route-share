@@ -1,10 +1,25 @@
-// 入口の全画面背景。
-// ★依頼2でここを地図（A）・地球儀（B）の全画面表示に差し替える。今は仮の背景だけ。
-//   A＝淡色＋水玉／B＝濃色＋ぼんやりした円（地球の仮置き）。切替は globals.css の data-theme だけで行う。
+'use client';
+
+// 入口の全画面背景。A＝日本全体のポップな地図／B＝ゆっくり自転する地球儀（どちらも操作できない飾り）。
+// 地図の読み込み前は背景色（A は水玉）だけを先に出す。出典は右下に小さく。
+import dynamic from 'next/dynamic';
+import { ATTRIBUTION_TEXT } from '@/lib/mapStyles';
+import { useTheme } from '@/lib/useTheme';
+
+const HeroMap = dynamic(() => import('@/components/HeroMap'), { ssr: false });
+
 export default function HeroBackdrop() {
+  const theme = useTheme();
   return (
-    <div aria-hidden className="hero-backdrop pointer-events-none absolute inset-0 overflow-hidden">
-      <div className="hero-globe absolute left-1/2 top-[30%] aspect-square w-[min(120vw,70dvh)] -translate-x-1/2 -translate-y-1/2 rounded-full" />
-    </div>
+    <>
+      <div aria-hidden className="hero-backdrop pointer-events-none absolute inset-0 overflow-hidden">
+        <HeroMap />
+        {/* 文字とボタンを読みやすくする薄い覆い */}
+        <div className="hero-veil absolute inset-0" />
+      </div>
+      <div className="hero-attribution absolute bottom-1 right-2 z-[1] text-[9px] leading-tight">
+        地図：{ATTRIBUTION_TEXT[theme]}
+      </div>
+    </>
   );
 }

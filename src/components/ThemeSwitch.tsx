@@ -1,14 +1,7 @@
 'use client';
 
-import { useSyncExternalStore } from 'react';
-import { applyTheme, DEFAULT_THEME, readTheme, type ThemeId } from '@/lib/theme';
-
-// <html data-theme> の変化を購読する（どの ThemeSwitch で切り替えても全部が追従する）
-function subscribe(onChange: () => void) {
-  const mo = new MutationObserver(onChange);
-  mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-  return () => mo.disconnect();
-}
+import { applyTheme, type ThemeId } from '@/lib/theme';
+import { useTheme } from '@/lib/useTheme';
 
 // 見比べ用の仮の切替（目立たせない）。
 // compact=true のときスマホ幅では「A / B」だけにする（ヘッダー用）
@@ -19,7 +12,7 @@ export default function ThemeSwitch({
   className?: string;
   compact?: boolean;
 }) {
-  const theme = useSyncExternalStore<ThemeId>(subscribe, readTheme, () => DEFAULT_THEME);
+  const theme = useTheme();
 
   const item = (t: ThemeId, letter: string, label: string) => (
     <button
