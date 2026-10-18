@@ -1,4 +1,5 @@
 import exifr from 'exifr';
+import { shrinkPhoto } from './photos';
 
 // 写真からGPS座標を取り出す。無ければ null（地図クリックで指定してもらう）。
 export async function extractGps(
@@ -15,34 +16,10 @@ export async function extractGps(
   return null;
 }
 
-// ブラウザ内保存用に縮小してdataURL化（保存容量とEXIF除去を兼ねる。
-// canvas経由の再エンコードでGPS等のEXIFは自動的に落ちる＝プライバシー対策）。
-export function fileToDataUrl(file: File, maxDim = 1400): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
-      const w = Math.round(img.width * scale);
-      const h = Math.round(img.height * scale);
-      const canvas = document.createElement('canvas');
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        reject(new Error('canvas not supported'));
-        return;
-      }
-      ctx.drawImage(img, 0, 0, w, h);
-      URL.revokeObjectURL(url);
-      resolve(canvas.toDataURL('image/jpeg', 0.82));
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error('image load failed'));
-    };
-    img.src = url;
-  });
+// 保存用に縮小して dataURL にする（依頼11：長い辺 1600px・JPEG・目安 300KB 以下。lib/photos.ts の shrinkPhoto）。
+// canvas で描き直すので、GPS 等の EXIF は残らない＝プライバシー対策（位置は上の extractGps で先に読む）。
+export async function fileToDataUrl(file: File): Promise<string> {
+  return (await shrinkPhoto(file)).dataUrl;
 }
 
 // 写真を撮った日（YYYY-MM-DD）。無ければ null。

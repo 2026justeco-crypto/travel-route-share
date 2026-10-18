@@ -6,7 +6,8 @@ import Link from 'next/link';
 import type { Post, Trip } from '@/lib/types';
 import { listPosts, listTrips, favoriteIds, toggleFavorite, hasDraft } from '@/lib/store';
 import { useAuth } from '@/lib/supabase';
-import { photoGetMany } from '@/lib/idb';
+import { photoUrls } from '@/lib/photos';
+import PhotoImg from '@/components/PhotoImg';
 import FilterPanel, { defaultFilters, type Filters } from '@/components/FilterPanel';
 import HeroBackdrop from '@/components/HeroBackdrop';
 import ThemeSwitch from '@/components/ThemeSwitch';
@@ -65,6 +66,7 @@ export default function Home() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [trips, setTrips] = useState<Trip[]>([]);
   const [photos, setPhotos] = useState<Map<string, string>>(new Map());
+  const [photosLoading, setPhotosLoading] = useState(true);
   const [favs, setFavs] = useState<Set<string>>(new Set());
   const [filters, setFilters] = useState<Filters>(defaultFilters());
   const [query, setQuery] = useState('');
@@ -156,12 +158,16 @@ export default function Home() {
           ...ps.map((p) => p.photoId),
           ...ts.flatMap((t) => t.spots.map((s) => s.photoId)),
         ].filter((x): x is string => !!x);
-        const ph = await photoGetMany(ids).catch(() => new Map<string, string>());
+        // 写真はまとめて署名付きURLにする（見てはいけない写真は返ってこない＝RLS）
+        const ph = await photoUrls(ids).catch(() => new Map<string, string>());
         if (alive) setPhotos(ph);
       } catch {
         if (alive) setLoadError(true);
       }
-      if (alive) setLoaded(true);
+      if (alive) {
+        setLoaded(true);
+        setPhotosLoading(false);
+      }
     };
     void load();
     // 引っ越し（components/AuthBoot）が終わったら読み直す
@@ -347,7 +353,6 @@ export default function Home() {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {visibleTrips.map((t) => {
               const thumbId = t.spots.find((s) => s.photoId)?.photoId;
-              const thumb = thumbId ? photos.get(thumbId) : null;
               return (
                 <Link
                   key={t.id}
@@ -355,10 +360,13 @@ export default function Home() {
                   className="t-card group overflow-hidden transition hover:-translate-y-0.5"
                 >
                   <div className="h-36 w-full bg-surface-2">
-                    {thumb && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={thumb} alt={t.title} className="h-full w-full object-cover" />
-                    )}
+                    <PhotoImg
+                      photoId={thumbId}
+                      urls={photos}
+                      loading={photosLoading}
+                      alt={t.title}
+                      className="h-full w-full object-cover"
+                    />
                   </div>
                   <div className="p-3">
                     <div className="flex items-center gap-2">
@@ -435,7 +443,6 @@ export default function Home() {
         ) : (
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
             {visiblePosts.map((p) => {
-              const photo = p.photoId ? photos.get(p.photoId) : null;
               return (
                 <div
                   key={p.id}
@@ -445,10 +452,13 @@ export default function Home() {
                   }`}
                 >
                   <div className="h-28 w-full bg-surface-2">
-                    {photo && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={photo} alt={p.title} className="h-full w-full object-cover" />
-                    )}
+                    <PhotoImg
+                      photoId={p.photoId}
+                      urls={photos}
+                      loading={photosLoading}
+                      alt={p.title}
+                      className="h-full w-full object-cover"
+                    />
                   </div>
                   <div className="p-2.5">
                     <div className="flex items-start justify-between gap-1">

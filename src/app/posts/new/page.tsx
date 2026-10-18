@@ -5,8 +5,9 @@ import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { extractGps, fileToDataUrl } from '@/lib/exif';
 import { nearestPrefecture } from '@/lib/regions';
-import { savePost, uid, ME_NAME, loadDraft, saveDraft, clearDraft } from '@/lib/store';
-import { photoGet, photoPut } from '@/lib/idb';
+import { savePost, ME_NAME, loadDraft, saveDraft, clearDraft } from '@/lib/store';
+import { photoDelete, photoGet, photoPut } from '@/lib/idb';
+import { removePhotos, uploadPhoto } from '@/lib/photos';
 import { searchPlaces, shortLabel, type PlaceHit } from '@/lib/geocode';
 import { CameraIcon, GlobeIcon, LockIcon, PinIcon, SearchIcon } from '@/components/icons';
 import { PageSkeleton } from '@/components/Skeleton';
@@ -121,15 +122,10 @@ function PostForm() {
     setSaving(true);
     setSaveError('');
     let photoId: string | null = null;
-    if (photoDataUrl) {
-      // 写真の画像はまだこの端末の中だけ（依頼11でサーバーへ）
-      photoId = uid();
-      await photoPut(photoId, photoDataUrl).catch(() => {
-        photoId = null;
-      });
-    }
     const pref = nearestPrefecture(pos.lat, pos.lng);
     try {
+      // 写真（選んだ時に縮小ずみ・EXIFなし）を先にサーバーへ置き、そのパスを投稿に付ける
+      if (photoDataUrl) photoId = await uploadPhoto(photoDataUrl, { shrunk: true });
       await savePost({
         id: '',
         userId: '',
@@ -147,11 +143,14 @@ function PostForm() {
         visibility,
       });
     } catch {
+      // 投稿できなかったら、置いた写真は消す（入力と下書きの写真は残す）
+      if (photoId) void removePhotos([photoId]);
       setSaving(false);
       setSaveError('投稿できませんでした。通信のよいところで、もう一度「投稿する」を押してください（入力は消えません）。');
       return;
     }
     clearDraft(DRAFT_KEY);
+    void photoDelete(DRAFT_PHOTO_ID).catch(() => {});
     router.push('/');
   };
 

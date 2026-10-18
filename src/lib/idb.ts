@@ -1,5 +1,6 @@
 // 写真データ（dataURL）を保存する IndexedDB の薄いラッパー。
-// メタデータは localStorage、画像本体はここ（容量制限対策）。
+// β版（依頼11）から写真の本体はサーバー（lib/photos.ts）。ここに置くのは
+//   ①入力中（下書き）の写真（保存した時にアップロードして消す）②引っ越し前の古い写真 ③グループの試作（依頼12まで）の写真 だけ。
 
 const DB_NAME = 'trs-db';
 const STORE = 'photos';
@@ -34,6 +35,16 @@ export async function photoGet(id: string): Promise<string | null> {
     const req = tx.objectStore(STORE).get(id);
     req.onsuccess = () => resolve((req.result as string) ?? null);
     req.onerror = () => reject(req.error);
+  });
+}
+
+export async function photoDelete(id: string): Promise<void> {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
   });
 }
 

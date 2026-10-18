@@ -4,21 +4,30 @@
 //   1) まだなら黙って匿名ログインする（成功したら何も出さない）
 //   2) つながらなければ「いまオフラインです」を小さく出す（見るだけはできる）
 //   3) この端末に今までの旅行・写真があれば、1回だけ「サーバーに移しますか？」を出す（移す／あとで）
-//   ★確認は window.confirm を使わず、画面の下に小さなカードで出す。
+//   4) 自分の写真のうち、どの旅行・投稿にも付いていないもの（消し損ね）を、開いたときに1回だけ掃除する（依頼11）
+//   ★確認は window.confirm を使わず、小さなカードで出す（トップのスマホでは入口のボタンに重ならないよう上に出す）。
 import { useEffect, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { ensureSession, retrySession, useAuth } from '@/lib/supabase';
 import { chooseLater, laterChosen, migrateAll, pendingLocal } from '@/lib/migrate';
 import { INPUT_PAGES } from '@/lib/navTrail';
+import { sweepOrphanPhotos } from '@/lib/photos';
 
 // 下部タブ（スマホ）の上に出す。入力画面ではタブが無いので保存ボタンの上に出さない＝入力画面では出さない
-const WRAP =
-  'fixed inset-x-0 z-[1001] mx-auto w-full max-w-md px-4 bottom-[calc(4rem+env(safe-area-inset-bottom))] sm:bottom-4';
+const WRAP_BASE = 'fixed inset-x-0 z-[1001] mx-auto w-full max-w-md px-4';
+const WRAP_BOTTOM = `${WRAP_BASE} bottom-[calc(4rem+env(safe-area-inset-bottom))] sm:bottom-4`;
+// トップ（入口）のスマホでは、下に「ルートを作る」「思い出をつくる」があるので、上（テーマ切替の下）に出す
+const WRAP_HOME = `${WRAP_BASE} top-[calc(3.5rem+env(safe-area-inset-top))] sm:top-auto sm:bottom-4`;
+/** 写真の掃除をこのタブで済ませた印 */
+const SWEPT_KEY = 'trs_photo_swept';
+/** 依頼10の仮の作り（投稿id↔端末の写真id）。サーバー版に置き換えたので消す */
+const OLD_POST_PHOTO_KEY = 'trs_post_photo_v1';
 
 export default function AuthBoot() {
   const auth = useAuth();
   const pathname = usePathname().replace(/\/$/, '') || '/';
   const onInput = INPUT_PAGES.includes(pathname);
+  const WRAP = pathname === '/' ? WRAP_HOME : WRAP_BOTTOM;
   // 閉じた（移した・あとで）
   const [closed, setClosed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -26,7 +35,24 @@ export default function AuthBoot() {
 
   useEffect(() => {
     void ensureSession();
+    try {
+      localStorage.removeItem(OLD_POST_PHOTO_KEY);
+    } catch {
+      // 読めない環境では何もしない
+    }
   }, []);
+
+  // 写真の消し損ねの掃除（タブを開いて1回だけ・画面には何も出さない）
+  useEffect(() => {
+    if (auth.status !== 'ready') return;
+    try {
+      if (sessionStorage.getItem(SWEPT_KEY)) return;
+      sessionStorage.setItem(SWEPT_KEY, '1');
+    } catch {
+      return;
+    }
+    void sweepOrphanPhotos();
+  }, [auth.status]);
 
   // ログインできたら、引っ越すものがあるかを見る（ブラウザでログインした後だけ＝サーバー描画では読まない）
   const counts = useMemo(() => {

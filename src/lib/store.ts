@@ -4,10 +4,11 @@
 //   関数の名前と引数は MVP（localStorage 版）にそろえた。読み書きはサーバーなので非同期（Promise）になった。
 //   守りは DB の RLS（supabase/migrations/0001_init.sql）。ここで「出さない」のは見た目の都合だけ。
 //   下書きは今までどおりこの端末（localStorage）に置く。
-//   写真はまだ端末の IndexedDB（依頼11でサーバーへ）。
+//   写真はサーバーの Storage（依頼11・lib/photos.ts）。旅行・投稿を消したら、付いていた写真も消す。
 
 import type { Post, Region, Trip, TripSpot, Visibility } from './types';
 import { ensureSession, myUserId, supabase } from './supabase';
+import { isStoragePath, removePhotos } from './photos';
 
 export { uid } from './localStore';
 
@@ -101,30 +102,7 @@ function toTrip(r: TripRow): Trip {
   };
 }
 
-// 投稿の写真（依頼11まで）：サーバーにはまだ写真を置けないので、自分の端末で付けた写真の id を投稿ごとに覚えておく
-const POST_PHOTO_KEY = 'trs_post_photo_v1';
-
-function postPhotoMap(): Record<string, string> {
-  try {
-    const v = JSON.parse(localStorage.getItem(POST_PHOTO_KEY) ?? '{}');
-    return v && typeof v === 'object' ? (v as Record<string, string>) : {};
-  } catch {
-    return {};
-  }
-}
-
-function setPostPhoto(postId: string, photoId: string | null) {
-  try {
-    const m = postPhotoMap();
-    if (photoId) m[postId] = photoId;
-    else delete m[postId];
-    localStorage.setItem(POST_PHOTO_KEY, JSON.stringify(m));
-  } catch {
-    // 覚えられなくても投稿はできる（写真が出ないだけ）
-  }
-}
-
-function toPost(r: PostRow, photos: Record<string, string>): Post {
+function toPost(r: PostRow): Post {
   return {
     id: r.id,
     userId: r.owner,
@@ -137,7 +115,7 @@ function toPost(r: PostRow, photos: Record<string, string>): Post {
     placeName: r.place,
     prefecture: r.prefecture,
     region: r.region as Region,
-    photoId: photos[r.id] ?? null,
+    photoId: r.photo_path ?? null,
     createdAt: r.created_at,
     visibility: r.visibility,
     isSample: r.is_sample,
@@ -167,8 +145,7 @@ export async function listPosts(): Promise<Post[]> {
     .order('created_at', { ascending: false })
     .limit(500);
   if (error) throw error;
-  const photos = postPhotoMap();
-  return (data as unknown as PostRow[]).map((r) => toPost(r, photos));
+  return (data as unknown as PostRow[]).map(toPost);
 }
 
 export async function savePost(post: Post): Promise<Post> {
@@ -185,22 +162,24 @@ export async function savePost(post: Post): Promise<Post> {
     region: post.region,
     date: post.date || null,
     visibility: post.visibility ?? 'public',
+    // 写真はアップロードしてからパスを渡す（lib/photos.ts の uploadPhoto）。端末の id は保存しない
+    photo_path: isStoragePath(post.photoId) ? post.photoId : null,
     created_at: post.createdAt,
   };
   const { data, error } = await supabase().from('posts').upsert(row).select(POST_COLS).single();
   if (error) throw error;
-  setPostPhoto(row.id, post.photoId);
-  return toPost(data as unknown as PostRow, postPhotoMap());
+  return toPost(data as unknown as PostRow);
 }
 
-/** 消せたら true（他人の投稿・無い投稿は false） */
+/** 消せたら true（他人の投稿・無い投稿は false）。付いていた写真も消す */
 export async function deletePost(id: string): Promise<boolean> {
   await needUser();
   if (!isServerId(id)) return false;
-  const { data, error } = await supabase().from('posts').delete().eq('id', id).select('id');
+  const { data, error } = await supabase().from('posts').delete().eq('id', id).select('id, photo_path');
   if (error) throw error;
-  if (data.length) setPostPhoto(id, null);
-  return data.length > 0;
+  if (!data.length) return false;
+  await removePhotos((data as { photo_path: string | null }[]).map((r) => r.photo_path));
+  return true;
 }
 
 // ---------- Trips ----------
@@ -244,13 +223,17 @@ export async function saveTrip(trip: Trip): Promise<Trip> {
   return toTrip(data as unknown as TripRow);
 }
 
-/** 消せたら true（他人の旅行・無い旅行は false） */
+/** 消せたら true（他人の旅行・無い旅行は false）。スポットに付いていた写真も消す */
 export async function deleteTrip(id: string): Promise<boolean> {
   await needUser();
   if (!isServerId(id)) return false;
-  const { data, error } = await supabase().from('trips').delete().eq('id', id).select('id');
+  // 消した行を返してもらい、その行に付いていた写真を消す（消し損ねは lib/photos.ts の sweepOrphanPhotos が後で拾う）
+  const { data, error } = await supabase().from('trips').delete().eq('id', id).select('id, spots');
   if (error) throw error;
-  return data.length > 0;
+  if (!data.length) return false;
+  const rows = data as { spots: TripSpot[] | null }[];
+  await removePhotos(rows.flatMap((r) => (Array.isArray(r.spots) ? r.spots.map((s) => s.photoId) : [])));
+  return true;
 }
 
 // ---------- Favorites（本人だけ・RLS） ----------

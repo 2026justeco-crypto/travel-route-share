@@ -3,11 +3,13 @@
 // この端末のデータの引っ越し（依頼10）。
 //   今までこの端末（localStorage）で作った旅行・写真の投稿（見本以外＝作った人が「me」のもの）を、
 //   見せる先「自分だけ」でサーバーへ移す。端末側は消さず、移したものに印を付ける（二重に移さない）。
-//   写真そのものは端末の IndexedDB に残したまま（依頼11でサーバーへ）。
+//   写真（端末の IndexedDB）も縮小してサーバーへ置く（依頼11）。端末の写真は消さない。
 
 import type { Post, Trip } from './types';
 import { LOCAL_USER, listLocalPosts, listLocalTrips } from './localStore';
 import { newId, savePost, saveTrip } from './store';
+import { isStoragePath, removePhotos, uploadPhoto, uploadSpotPhotos } from './photos';
+import { photoGet } from './idb';
 
 /** 移した印：端末の id → サーバーの id */
 const DONE_KEY = 'trs_migrated_v1';
@@ -70,25 +72,36 @@ export async function migrateAll(): Promise<{ trips: number; posts: number; fail
   let p = 0;
   let failed = 0;
   for (const trip of trips) {
+    let uploaded: string[] = [];
     try {
+      // スポットの写真を縮小してサーバーへ（端末に写真が残っていないスポットは写真なしで移す）
+      const up = await uploadSpotPhotos(Array.isArray(trip.spots) ? trip.spots : []);
+      uploaded = up.uploaded;
       const saved = await saveTrip({
         ...trip,
         id: newId(),
         title: trip.title?.trim() || 'この端末の旅行',
-        spots: Array.isArray(trip.spots) ? trip.spots : [],
+        spots: up.spots,
         visibility: 'private',
         createdAt: trip.createdAt || new Date().toISOString(),
       });
       markDone(trip.id, saved.id);
       t++;
     } catch {
+      if (uploaded.length) await removePhotos(uploaded);
       failed++;
     }
   }
   for (const post of posts) {
+    let photoPath: string | null = null;
     try {
+      if (post.photoId && !isStoragePath(post.photoId)) {
+        const data = await photoGet(post.photoId);
+        if (data) photoPath = await uploadPhoto(data);
+      }
       const saved = await savePost({
         ...post,
+        photoId: photoPath,
         id: newId(),
         title: post.title?.trim() || 'この端末の写真',
         visibility: 'private',
@@ -97,6 +110,7 @@ export async function migrateAll(): Promise<{ trips: number; posts: number; fail
       markDone(post.id, saved.id);
       p++;
     } catch {
+      if (photoPath) await removePhotos([photoPath]);
       failed++;
     }
   }

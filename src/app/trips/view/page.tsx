@@ -8,7 +8,8 @@ import type { Trip } from '@/lib/types';
 import { getTrip, saveTrip, deleteTrip, isFavorite, toggleFavorite } from '@/lib/store';
 import { useAuth } from '@/lib/supabase';
 import { getLocalTrip } from '@/lib/localStore';
-import { photoGetMany } from '@/lib/idb';
+import { photoUrls } from '@/lib/photos';
+import PhotoImg from '@/components/PhotoImg';
 import type { RoutePoint } from '@/components/JapanMap';
 import { GlobeIcon, LockIcon, ModeIcon, StarIcon } from '@/components/icons';
 import { PageSkeleton } from '@/components/Skeleton';
@@ -35,6 +36,7 @@ function TripDetail({ id }: { id: string }) {
   const [loadError, setLoadError] = useState(false);
   const [fav, setFav] = useState(false);
   const [photos, setPhotos] = useState<Map<string, string>>(new Map());
+  const [photosLoading, setPhotosLoading] = useState(true);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [actionError, setActionError] = useState('');
   const theme = useTheme();
@@ -72,7 +74,17 @@ function TripDetail({ id }: { id: string }) {
   const photoKey = (trip?.spots ?? []).map((s) => s.photoId ?? '').join(',');
   useEffect(() => {
     const ids = photoKey.split(',').filter(Boolean);
-    if (ids.length) photoGetMany(ids).then(setPhotos);
+    if (!ids.length) return;
+    let alive = true;
+    // 写真はまとめて署名付きURLにする（グループの試作の写真だけは端末から）
+    photoUrls(ids).then((m) => {
+      if (!alive) return;
+      setPhotos(m);
+      setPhotosLoading(false);
+    });
+    return () => {
+      alive = false;
+    };
   }, [photoKey]);
 
   if (trip === undefined) return <PageSkeleton />;
@@ -282,7 +294,6 @@ function TripDetail({ id }: { id: string }) {
         <div className="lg:col-span-2 lg:col-start-1 lg:row-start-1">
           <ol className="space-y-0">
             {trip.spots.map((s, i) => {
-              const photo = s.photoId ? photos.get(s.photoId) : null;
               return (
                 <li key={s.id}>
                   <div className="rounded-xl border border-line-soft bg-surface p-3">
@@ -295,10 +306,13 @@ function TripDetail({ id }: { id: string }) {
                         <span className="rounded bg-surface-2 px-1.5 py-0.5 text-xs text-muted">位置なし</span>
                       )}
                     </div>
-                    {photo && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={photo} alt={s.name} className="mt-2 h-36 w-full rounded-lg object-cover" />
-                    )}
+                    <PhotoImg
+                      photoId={s.photoId}
+                      urls={photos}
+                      loading={photosLoading}
+                      alt={s.name}
+                      className="mt-2 h-36 w-full rounded-lg object-cover"
+                    />
                     {s.memo && <p className="mt-2 whitespace-pre-wrap text-sm text-muted">{s.memo}</p>}
                   </div>
                   {i < trip.spots.length - 1 &&

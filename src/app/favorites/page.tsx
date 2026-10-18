@@ -6,7 +6,8 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import type { Post, Trip } from '@/lib/types';
 import { favoriteIds, listPosts, listTrips, toggleFavorite, type FavKind } from '@/lib/store';
-import { photoGetMany } from '@/lib/idb';
+import { photoUrls } from '@/lib/photos';
+import PhotoImg from '@/components/PhotoImg';
 import { StarIcon } from '@/components/icons';
 import { PageSkeleton } from '@/components/Skeleton';
 import { useMounted } from '@/lib/useMounted';
@@ -17,6 +18,7 @@ function Favorites() {
   const [trips, setTrips] = useState<Trip[]>([]);
   const [posts, setPosts] = useState<Post[]>([]);
   const [photos, setPhotos] = useState<Map<string, string>>(new Map());
+  const [photosLoading, setPhotosLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState(false);
 
@@ -35,13 +37,16 @@ function Favorites() {
           (x): x is string => !!x,
         );
         if (ids.length) {
-          const ph = await photoGetMany(ids).catch(() => new Map<string, string>());
+          const ph = await photoUrls(ids).catch(() => new Map<string, string>());
           if (alive) setPhotos(ph);
         }
       } catch {
         if (alive) setLoadError(true);
       }
-      if (alive) setLoaded(true);
+      if (alive) {
+        setLoaded(true);
+        setPhotosLoading(false);
+      }
     })();
     return () => {
       alive = false;
@@ -92,16 +97,12 @@ function Favorites() {
           <ul className="space-y-3">
             {trips.map((t) => {
               const thumbId = t.spots.find((s) => s.photoId)?.photoId;
-              const thumb = thumbId ? photos.get(thumbId) : null;
               const on = favs.has(t.id);
               return (
                 <li key={t.id} className="t-card flex items-center gap-3 overflow-hidden p-2">
                   <Link href={`/trips/view?id=${t.id}`} className="flex min-h-14 min-w-0 flex-1 items-center gap-3">
                     <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-surface-2">
-                      {thumb && (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={thumb} alt="" className="h-full w-full object-cover" />
-                      )}
+                      <PhotoImg photoId={thumbId} urls={photos} loading={photosLoading} alt="" className="h-full w-full object-cover" />
                     </div>
                     <div className="min-w-0">
                       <div className="truncate font-bold text-ink">{t.title}</div>
@@ -128,15 +129,17 @@ function Favorites() {
           <h2 className="mb-2 text-lg font-extrabold">写真</h2>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
             {posts.map((p) => {
-              const photo = p.photoId ? photos.get(p.photoId) : null;
               const on = favs.has(p.id);
               return (
                 <div key={p.id} className="t-card overflow-hidden">
                   <div className="h-28 w-full bg-surface-2">
-                    {photo && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={photo} alt={p.title} className="h-full w-full object-cover" />
-                    )}
+                    <PhotoImg
+                      photoId={p.photoId}
+                      urls={photos}
+                      loading={photosLoading}
+                      alt={p.title}
+                      className="h-full w-full object-cover"
+                    />
                   </div>
                   <div className="flex items-start justify-between gap-1 p-2.5">
                     <div className="min-w-0">

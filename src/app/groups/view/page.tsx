@@ -23,7 +23,7 @@ import {
   seedAll,
 } from '@/lib/groups';
 import { LOCAL_USER as CURRENT_USER } from '@/lib/localStore';
-import { photoGetMany } from '@/lib/idb';
+import { photoUrls } from '@/lib/photos';
 import { markReplace } from '@/lib/navTrail';
 import { useTheme } from '@/lib/useTheme';
 import type { MapPin } from '@/components/JapanMap';
@@ -146,7 +146,7 @@ function GroupDetail({ id, created }: { id: string; created: boolean }) {
       const ids = [...ps.map((p) => p.photoId), ...ts.flatMap((t) => t.spots.map((s) => s.photoId))].filter(
         (x): x is string => !!x,
       );
-      if (ids.length) setPhotos(await photoGetMany(ids));
+      if (ids.length) setPhotos(await photoUrls(ids));
     })();
   }, [id]);
 

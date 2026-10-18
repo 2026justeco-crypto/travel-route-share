@@ -8,7 +8,16 @@ import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import type { TransportMode, Trip, TripSpot } from '@/lib/types';
 import { saveTrip, uid, ME_NAME, loadDraft, saveDraft, clearDraft } from '@/lib/store';
-import { photoPut, photoGetMany } from '@/lib/idb';
+import { photoPut } from '@/lib/idb';
+import {
+  forgetLocalPhotos,
+  isStoragePath,
+  photoUrls,
+  removePhotos,
+  sweepOrphanPhotos,
+  uploadSpotPhotos,
+} from '@/lib/photos';
+import PhotoImg from '@/components/PhotoImg';
 import { extractDate, extractGps, fileToDataUrl } from '@/lib/exif';
 import { searchPlaces, shortLabel, type PlaceHit } from '@/lib/geocode';
 import { nearestPrefecture } from '@/lib/regions';
@@ -107,8 +116,19 @@ export default function TripForm({ initial, initialStatus, initialGroupIds }: Pr
   const [firstPhotoIds] = useState(() =>
     spots.map((s) => s.photoId).filter((x): x is string => !!x),
   );
+  // 下書きの写真は端末から、保存ずみの写真はサーバーから（署名付きURL）
+  const [photosLoading, setPhotosLoading] = useState(() => firstPhotoIds.length > 0);
   useEffect(() => {
-    if (firstPhotoIds.length) photoGetMany(firstPhotoIds).then(setPhotos);
+    if (!firstPhotoIds.length) return;
+    let alive = true;
+    photoUrls(firstPhotoIds).then((m) => {
+      if (!alive) return;
+      setPhotos((cur) => new Map([...m, ...cur]));
+      setPhotosLoading(false);
+    });
+    return () => {
+      alive = false;
+    };
   }, [firstPhotoIds]);
 
   // 入力のたびに下書きを保存（何も書いていない間は保存しない）
@@ -191,6 +211,7 @@ export default function TripForm({ initial, initialStatus, initialGroupIds }: Pr
     if (!file) return;
     const spot = spots.find((s) => s.id === spotId);
     const hadPhoto = spots.some((s) => s.photoId);
+    // 縮小（長い辺1600px・EXIFは落ちる）して、保存するまでは端末に置く。サーバーへは「保存」を押した時に送る
     const [gps, shotOn, dataUrl] = await Promise.all([extractGps(file), extractDate(file), fileToDataUrl(file)]);
     const photoId = uid();
     await photoPut(photoId, dataUrl);
@@ -282,12 +303,25 @@ export default function TripForm({ initial, initialStatus, initialGroupIds }: Pr
       createdAt: initial?.createdAt ?? new Date().toISOString(),
       visibility,
     };
+    // 端末にある写真（今回選んだもの）を先にサーバーへ置く。保存に失敗したら置いた写真は消す
+    let uploaded: string[] = [];
     try {
+      const up = await uploadSpotPhotos(trip.spots, { shrunk: true });
+      uploaded = up.uploaded;
       // サーバーに保存（持ち主はサーバーがログイン中の人に決める。新しい旅行の id もここで決まる）
-      const saved = await saveTrip(trip);
+      const saved = await saveTrip({ ...trip, spots: up.spots });
+      uploaded = [];
       clearDraft(draftKey);
+      void forgetLocalPhotos(up.localIds);
+      // 編集で差し替え・消したスポットの写真は、サーバーからも消す
+      if (initial) {
+        const keep = new Set(saved.spots.map((x) => x.photoId).filter(isStoragePath));
+        void removePhotos(initial.spots.map((x) => x.photoId).filter((x) => isStoragePath(x) && !keep.has(x)));
+      }
+      void sweepOrphanPhotos();
       router.push(`/trips/view?id=${saved.id}`);
     } catch {
+      if (uploaded.length) void removePhotos(uploaded);
       // 下書きは残っているので、入力は消えない
       setSaving(false);
       setSaveError('保存できませんでした。通信のよいところで、もう一度「保存」を押してください（入力は消えません）。');
@@ -513,14 +547,13 @@ export default function TripForm({ initial, initialStatus, initialGroupIds }: Pr
                       <div className="text-right text-[10px] text-muted">検索: OpenStreetMap Nominatim</div>
                     </div>
                   ) : null}
-                  {s.photoId && photos.get(s.photoId) && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={photos.get(s.photoId)!}
-                      alt={s.name}
-                      className="mt-2 h-28 w-full rounded-lg object-cover"
-                    />
-                  )}
+                  <PhotoImg
+                    photoId={s.photoId}
+                    urls={photos}
+                    loading={photosLoading}
+                    alt={s.name}
+                    className="mt-2 h-28 w-full rounded-lg object-cover"
+                  />
                 </div>
                 {i < spots.length - 1 && (
                   <MovePicker
