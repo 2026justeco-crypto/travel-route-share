@@ -595,3 +595,117 @@ body {
     animation: none;
   }
 }
+
+/* =========================================================
+   タイル地図（四角だけでできた日本地図・依頼5）
+   色はテーマごとに変数で持つ。枠の太さは画面上の px で固定（拡大縮小しても同じ太さ）
+   ========================================================= */
+:root,
+[data-theme="a"] {
+  --tile-sea: #a8def7;
+  --tile-sea-dot: rgba(43, 45, 82, 0.08);
+  --tile-land: #e3f5d0;
+  --tile-hot: #9fdc7c; /* 件数が1以上 */
+  --tile-visited: #ffc94d; /* 行った県など（highlight） */
+  --tile-line: #2b2d52;
+  --tile-line-w: 2.5px;
+  --tile-text: #2b2d52;
+  --tile-badge-bg: #2b2d52;
+  --tile-badge-text: #ffffff;
+  --tile-selected: #0f8fdc;
+  --tile-focus: #ff5a7a;
+  --tile-glow: none;
+}
+[data-theme="b"] {
+  --tile-sea: #05070f;
+  --tile-sea-dot: rgba(255, 255, 255, 0.05);
+  --tile-land: rgba(255, 255, 255, 0.05);
+  --tile-hot: rgba(61, 255, 154, 0.26);
+  --tile-visited: rgba(108, 199, 255, 0.36);
+  --tile-line: rgba(61, 255, 154, 0.7);
+  --tile-line-w: 1.25px;
+  --tile-text: #e6ebf5;
+  --tile-badge-bg: #3dff9a;
+  --tile-badge-text: #05070f;
+  --tile-selected: #ffffff;
+  --tile-focus: #ffb020;
+  --tile-glow: drop-shadow(0 0 3px rgba(61, 255, 154, 0.55));
+}
+
+.trs-tilemap {
+  display: block;
+  width: 100%;
+  height: auto;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+.trs-tilemap-sea {
+  fill: var(--tile-sea);
+}
+.trs-tilemap-dot {
+  fill: var(--tile-sea-dot);
+}
+.trs-tilemap-land {
+  filter: var(--tile-glow);
+}
+.trs-tile-body {
+  fill: var(--tile-land);
+  vector-effect: non-scaling-stroke;
+  stroke: var(--tile-line);
+  stroke-width: var(--tile-line-w);
+  transition: fill 120ms ease;
+}
+.trs-tile.is-hot .trs-tile-body {
+  fill: var(--tile-hot);
+}
+.trs-tile.is-visited .trs-tile-body {
+  fill: var(--tile-visited);
+}
+.trs-tile-label {
+  fill: var(--tile-text);
+  font-family: var(--font);
+  font-weight: 800;
+  pointer-events: none;
+}
+.trs-tile-badge {
+  fill: var(--tile-badge-bg);
+}
+.trs-tile-badge-text {
+  fill: var(--tile-badge-text);
+  font-family: var(--font);
+  font-weight: 800;
+  pointer-events: none;
+}
+.trs-tilemap.is-interactive .trs-tile {
+  cursor: pointer;
+}
+.trs-tilemap.is-interactive .trs-tile:hover .trs-tile-body {
+  filter: brightness(0.95);
+}
+.trs-tile:focus {
+  outline: none;
+}
+.trs-tile-ring {
+  fill: none;
+  stroke: var(--tile-focus);
+  stroke-width: 3px;
+  opacity: 0;
+  pointer-events: none;
+}
+.trs-tile:focus-visible .trs-tile-ring {
+  opacity: 1;
+}
+.trs-tile-selected {
+  fill: none;
+  stroke: var(--tile-selected);
+  stroke-width: 4px;
+  pointer-events: none;
+}
+[data-theme="b"] .trs-tile-selected {
+  filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.8));
+}
+@media (prefers-reduced-motion: reduce) {
+  .trs-tile-body {
+    transition: none;
+  }
+}
