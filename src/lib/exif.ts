@@ -44,3 +44,18 @@ export function fileToDataUrl(file: File, maxDim = 1400): Promise<string> {
     img.src = url;
   });
 }
+
+// 写真を撮った日（YYYY-MM-DD）。無ければ null。
+export async function extractDate(file: File): Promise<string | null> {
+  try {
+    const d = (await exifr.parse(file, ['DateTimeOriginal'])) as { DateTimeOriginal?: Date } | undefined;
+    const t = d?.DateTimeOriginal;
+    if (t instanceof Date && !Number.isNaN(t.getTime())) {
+      const p = (n: number) => String(n).padStart(2, '0');
+      return `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())}`;
+    }
+  } catch {
+    // 読めない形式は日付なし
+  }
+  return null;
+}

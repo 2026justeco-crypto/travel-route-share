@@ -16,7 +16,8 @@ import { photoGetMany } from '@/lib/idb';
 import FilterPanel, { defaultFilters, type Filters } from '@/components/FilterPanel';
 import HeroBackdrop from '@/components/HeroBackdrop';
 import ThemeSwitch from '@/components/ThemeSwitch';
-import { RouteIcon, BookIcon, ArrowDownIcon } from '@/components/icons';
+import { RouteIcon, BookIcon, ArrowDownIcon, StarIcon } from '@/components/icons';
+import { SkeletonBlock } from '@/components/Skeleton';
 import type { MapPin } from '@/components/JapanMap';
 
 const JapanMap = dynamic(() => import('@/components/JapanMap'), {
@@ -106,7 +107,8 @@ export default function Home() {
   return (
     <>
       {/* 入口：最初の1画面まるごと。データの読み込みを待たずにすぐ押せる */}
-      <section className="relative isolate flex h-[100dvh] flex-col overflow-hidden">
+      {/* スマホでは下部タブの分だけ低くする（大きなボタンがタブに隠れないように） */}
+      <section className="relative isolate flex h-[calc(100dvh-3.5rem-env(safe-area-inset-bottom))] flex-col overflow-hidden sm:h-[100dvh]">
         <HeroBackdrop />
         <ThemeSwitch className="absolute right-4 top-4 z-10" />
 
@@ -138,7 +140,7 @@ export default function Home() {
           </div>
           <a
             href="#explore"
-            className="mx-auto mt-4 flex w-fit items-center gap-1 rounded-full px-3 py-2 text-sm font-bold text-muted hover:text-ink"
+            className="mx-auto mt-3 flex min-h-11 w-fit items-center gap-1 rounded-full px-4 text-base font-bold text-muted hover:text-ink"
           >
             みんなの旅を見る
             <ArrowDownIcon className="h-4 w-4" />
@@ -153,12 +155,16 @@ export default function Home() {
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="🔍 地名・都道府県・タイトル・投稿者で検索"
-          className="w-full rounded-full border-2 border-line bg-surface px-5 py-2.5 text-sm text-ink shadow-sm outline-none placeholder:text-muted focus:border-primary"
+          type="search"
+          enterKeyHint="search"
+          aria-label="さがす"
+          placeholder="地名・旅行の名前でさがす"
+          className="min-h-11 w-full min-w-0 rounded-full border-2 border-line bg-surface px-5 py-2 text-base text-ink shadow-sm outline-none placeholder:text-muted focus:border-primary"
         />
         <button
           onClick={() => setShowFilters((v) => !v)}
-          className="shrink-0 rounded-full border-2 border-line bg-surface px-4 py-2 text-sm font-bold text-ink hover:opacity-80"
+          aria-expanded={showFilters}
+          className="min-h-11 shrink-0 rounded-full border-2 border-line bg-surface px-4 text-sm font-bold text-ink hover:opacity-80"
         >
           絞り込み {showFilters ? '▲' : '▼'}
         </button>
@@ -167,28 +173,27 @@ export default function Home() {
       {/* フィルター（デフォルト非表示） */}
       {showFilters && <FilterPanel filters={filters} onChange={setFilters} />}
 
-      {/* 地図 */}
-      <section>
-        <JapanMap pins={pins} onToggleFavorite={onToggleFavorite} height="480px" />
-        <p className="mt-1.5 text-xs text-muted">
-          ピンを押すと写真と詳細が見られます。青いピンが自分の投稿です。
-        </p>
-      </section>
-
       {/* 新着旅行 */}
       <section>
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-extrabold text-ink">🧳 新着旅行</h2>
+          <h2 className="text-lg font-extrabold text-ink">新着の旅行</h2>
           <Link
             href="/trips/new"
-            className="rounded-full border-2 border-line bg-surface px-3 py-1 text-sm font-bold text-ink transition hover:opacity-80"
+            className="inline-flex min-h-11 items-center rounded-full border-2 border-line bg-surface px-4 text-sm font-bold text-ink transition hover:opacity-80"
           >
-            ＋ 旅行ルートを作る
+            ＋ ルートを作る
           </Link>
         </div>
-        {visibleTrips.length === 0 ? (
+        {!loaded ? (
+          // 読み込み中は形だけ先に出す（「まだありません」を一瞬出さない）
+          <div role="status" aria-label="読み込み中" className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {[0, 1].map((k) => (
+              <SkeletonBlock key={k} className="h-60 w-full" />
+            ))}
+          </div>
+        ) : visibleTrips.length === 0 ? (
           <div className="rounded-xl border border-dashed border-line bg-surface p-8 text-center text-sm text-muted">
-            まだ旅行ルートがありません。「旅行ルート作成」から最初の旅を計画してみましょう。
+            {q ? '見つかりませんでした。ほかの言葉でさがしてください。' : 'まだ旅行がありません。「ルートを作る」から始めましょう。'}
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -201,7 +206,7 @@ export default function Home() {
                   href={`/trips/view?id=${t.id}`}
                   className="t-card group overflow-hidden transition hover:-translate-y-0.5"
                 >
-                  <div className="h-36 w-full bg-gradient-to-br from-blue-100 to-sky-50">
+                  <div className="h-36 w-full bg-surface-2">
                     {thumb && (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={thumb} alt={t.title} className="h-full w-full object-cover" />
@@ -212,11 +217,11 @@ export default function Home() {
                       <span
                         className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
                           t.status === 'plan'
-                            ? 'bg-amber-50 text-amber-600'
-                            : 'bg-emerald-50 text-emerald-600'
+                            ? 'bg-amber-500/15 text-amber-600'
+                            : 'bg-emerald-500/15 text-emerald-600'
                         }`}
                       >
-                        {t.status === 'plan' ? '🗓 これから行く' : '📖 思い出'}
+                        {t.status === 'plan' ? 'これから行く' : '思い出'}
                       </span>
                       <span className="text-xs text-muted">
                         {t.startDate}
@@ -238,20 +243,28 @@ export default function Home() {
         )}
       </section>
 
+      {/* 地図 */}
+      <section>
+        <JapanMap pins={pins} onToggleFavorite={onToggleFavorite} height="480px" />
+        <p className="mt-1.5 text-xs text-muted">
+          ピンを押すと写真が見られます。青いピンはあなたの投稿です。
+        </p>
+      </section>
+
       {/* 新着投稿 */}
       <section>
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-extrabold text-ink">📸 新着投稿</h2>
+          <h2 className="text-lg font-extrabold text-ink">新着の写真</h2>
           <Link
             href="/posts/new"
-            className="rounded-full border-2 border-line bg-surface px-3 py-1 text-sm font-bold text-ink transition hover:opacity-80"
+            className="inline-flex min-h-11 items-center rounded-full border-2 border-line bg-surface px-4 text-sm font-bold text-ink transition hover:opacity-80"
           >
-            ＋ 写真を投稿する
+            ＋ 写真を投稿
           </Link>
         </div>
         {loaded && visiblePosts.length === 0 ? (
           <div className="rounded-xl border border-dashed border-line bg-surface p-8 text-center text-sm text-muted">
-            表示できる投稿がありません（フィルターを確認してください）。
+            出せる写真がありません（絞り込みを確かめてください）。
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
@@ -262,7 +275,7 @@ export default function Home() {
                   key={p.id}
                   className="t-card overflow-hidden transition hover:-translate-y-0.5"
                 >
-                  <div className="h-28 w-full bg-gray-100">
+                  <div className="h-28 w-full bg-surface-2">
                     {photo && (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={photo} alt={p.title} className="h-full w-full object-cover" />
@@ -272,11 +285,13 @@ export default function Home() {
                     <div className="flex items-start justify-between gap-1">
                       <div className="text-sm font-bold leading-tight text-ink">{p.title}</div>
                       <button
+                        type="button"
                         onClick={() => onToggleFavorite(p.id)}
-                        className={`text-base leading-none ${favs.has(p.id) ? 'text-amber-400' : 'text-gray-300'}`}
-                        title="お気に入り"
+                        className={`-m-2.5 flex h-11 w-11 shrink-0 items-center justify-center ${favs.has(p.id) ? 'text-amber-500' : 'text-muted'}`}
+                        aria-label={favs.has(p.id) ? 'お気に入りを外す' : 'お気に入りに追加'}
+                        aria-pressed={favs.has(p.id)}
                       >
-                        ★
+                        <StarIcon filled={favs.has(p.id)} className="h-5 w-5" />
                       </button>
                     </div>
                     <div className="mt-0.5 text-xs text-muted">

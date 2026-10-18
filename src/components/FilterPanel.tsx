@@ -35,7 +35,7 @@ function Check({
   onToggle: () => void;
 }) {
   return (
-    <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-sm text-gray-700 hover:bg-gray-50 has-[:checked]:border-blue-300 has-[:checked]:bg-blue-50 has-[:checked]:text-blue-700">
+    <label className="flex min-h-11 cursor-pointer items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700 hover:bg-gray-50 has-[:checked]:border-blue-300 has-[:checked]:bg-blue-50 has-[:checked]:text-blue-700">
       <input type="checkbox" checked={checked} onChange={onToggle} className="accent-blue-600" />
       {label}
     </label>
@@ -75,7 +75,7 @@ export default function FilterPanel({ filters, onChange }: Props) {
         <select
           value={filters.recent}
           onChange={(e) => set({ recent: e.target.value as RecentFilter })}
-          className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm text-gray-700"
+          className="min-h-11 rounded-lg border border-gray-200 bg-white px-2 text-base text-gray-700"
         >
           <option value="all">すべて</option>
           <option value="7">直近7日</option>
@@ -96,7 +96,7 @@ export default function FilterPanel({ filters, onChange }: Props) {
               ),
             })
           }
-          className="text-xs text-blue-600 underline"
+          className="min-h-11 px-2 text-sm text-blue-600 underline"
         >
           全選択/解除
         </button>

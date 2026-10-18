@@ -1,16 +1,29 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+// 旅行ルートの作成・編集フォーム。
+// ★ localStorage の下書きを初期値に使うので、呼び出し側はブラウザでだけ描画する（useMounted で待つ）。
+
+import { useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import type { TransportMode, Trip, TripSpot } from '@/lib/types';
-import { saveTrip, uid, CURRENT_USER } from '@/lib/store';
+import { saveTrip, uid, CURRENT_USER, loadDraft, saveDraft, clearDraft } from '@/lib/store';
 import { photoPut, photoGetMany } from '@/lib/idb';
-import { extractGps, fileToDataUrl } from '@/lib/exif';
+import { extractDate, extractGps, fileToDataUrl } from '@/lib/exif';
 import { searchPlaces, shortLabel, type PlaceHit } from '@/lib/geocode';
+import { nearestPrefecture } from '@/lib/regions';
 import { MODE_COLOR, TRANSPORT_LABEL, TRANSPORT_MODES, routeFromSpots } from '@/lib/transport';
 import { useTheme } from '@/lib/useTheme';
-import { ModeIcon, ModeUnsetIcon } from '@/components/icons';
+import {
+  CameraIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
+  CloseIcon,
+  ModeIcon,
+  ModeUnsetIcon,
+  PinIcon,
+  SearchIcon,
+} from '@/components/icons';
 import type { RoutePoint } from '@/components/JapanMap';
 
 interface SpotSearch {
@@ -20,9 +33,20 @@ interface SpotSearch {
   error: string;
 }
 
+interface Draft {
+  title: string;
+  startDate: string;
+  endDate: string;
+  status: 'plan' | 'done';
+  spots: TripSpot[];
+}
+
+// スマホでは地図を画面の半分ほどに（PCは今までどおり）
+const MAP_HEIGHT = 'min(56vh, 520px)';
+
 const JapanMap = dynamic(() => import('@/components/JapanMap'), {
   ssr: false,
-  loading: () => <div className="trs-map trs-map-loading h-[520px]" />,
+  loading: () => <div className="trs-map trs-map-loading" style={{ height: MAP_HEIGHT }} />,
 });
 
 interface Props {
@@ -30,15 +54,35 @@ interface Props {
   initialStatus?: 'plan' | 'done'; // 新規作成時の初期状態（「思い出をつくる」入口用）
 }
 
+const emptySpot = (): TripSpot => ({ id: uid(), name: '', memo: '', lat: null, lng: null, photoId: null });
+const today = () => new Date().toISOString().slice(0, 10);
+const isEmptySpot = (s: TripSpot) => !s.name.trim() && !s.memo.trim() && s.lat === null && !s.photoId;
+
+/** 入力欄の共通の見た目（文字は16px＝iPhoneで入力時に勝手に拡大されない） */
+const FIELD =
+  'w-full min-h-11 rounded-xl border border-line-soft bg-surface px-3 py-2 text-base text-ink outline-none focus:border-blue-400';
+/** 小さめの操作ボタン（タップ領域44px） */
+const CHIP =
+  'inline-flex min-h-11 items-center gap-1.5 rounded-full border px-3.5 text-sm font-bold';
+
 export default function TripForm({ initial, initialStatus }: Props) {
   const router = useRouter();
-  const [title, setTitle] = useState(initial?.title ?? '');
-  const [startDate, setStartDate] = useState(
-    initial?.startDate ?? new Date().toISOString().slice(0, 10),
+  const draftKey = initial ? `trip_edit_${initial.id}` : `trip_new_${initialStatus ?? 'plan'}`;
+  // 下書きがあればそこから再開（リロード・ブラウザの戻るで入力が消えないように）
+  const [draft] = useState(() => loadDraft<Draft>(draftKey));
+  const [restored, setRestored] = useState(() => !!draft);
+
+  const [title, setTitle] = useState(draft?.title ?? initial?.title ?? '');
+  const [startDate, setStartDate] = useState(draft?.startDate ?? initial?.startDate ?? today());
+  const [endDate, setEndDate] = useState(draft?.endDate ?? initial?.endDate ?? '');
+  const [showEnd, setShowEnd] = useState(() => !!endDate && endDate !== startDate);
+  const [status, setStatus] = useState<'plan' | 'done'>(
+    draft?.status ?? initial?.status ?? initialStatus ?? 'plan',
   );
-  const [endDate, setEndDate] = useState(initial?.endDate ?? '');
-  const [status, setStatus] = useState<'plan' | 'done'>(initial?.status ?? initialStatus ?? 'plan');
-  const [spots, setSpots] = useState<TripSpot[]>(initial?.spots ?? []);
+  // 新規は最初から1つ空のスポットを出しておく（「＋スポットを追加」を押さなくても書き始められる）
+  const [spots, setSpots] = useState<TripSpot[]>(
+    () => draft?.spots ?? initial?.spots ?? [emptySpot()],
+  );
   const [photos, setPhotos] = useState<Map<string, string>>(new Map());
   const [pickTarget, setPickTarget] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -46,19 +90,48 @@ export default function TripForm({ initial, initialStatus }: Props) {
   // 移動手段の選択肢を開いている区間（その区間の出発スポットの id）
   const [moveOpen, setMoveOpen] = useState<string | null>(null);
   const theme = useTheme();
+  const mapRef = useRef<HTMLDivElement>(null);
+  const omoide = status === 'done' && !initial;
 
+  // 写真（下書き・編集中の旅行に付いているもの）を読み込む
+  const [firstPhotoIds] = useState(() =>
+    spots.map((s) => s.photoId).filter((x): x is string => !!x),
+  );
   useEffect(() => {
-    const ids = (initial?.spots ?? [])
-      .map((s) => s.photoId)
-      .filter((x): x is string => !!x);
-    if (ids.length) photoGetMany(ids).then(setPhotos);
-  }, [initial]);
+    if (firstPhotoIds.length) photoGetMany(firstPhotoIds).then(setPhotos);
+  }, [firstPhotoIds]);
+
+  // 入力のたびに下書きを保存（何も書いていない間は保存しない）
+  useEffect(() => {
+    const pristine = initial
+      ? title === initial.title &&
+        startDate === initial.startDate &&
+        endDate === initial.endDate &&
+        status === initial.status &&
+        JSON.stringify(spots) === JSON.stringify(initial.spots)
+      : !title.trim() && !endDate && spots.every(isEmptySpot);
+    if (pristine) clearDraft(draftKey);
+    else saveDraft(draftKey, { title, startDate, endDate, status, spots } satisfies Draft);
+  }, [draftKey, initial, title, startDate, endDate, status, spots]);
+
+  const startOver = () => {
+    clearDraft(draftKey);
+    setTitle(initial?.title ?? '');
+    setStartDate(initial?.startDate ?? today());
+    setEndDate(initial?.endDate ?? '');
+    setShowEnd(!!initial?.endDate && initial.endDate !== initial.startDate);
+    setStatus(initial?.status ?? initialStatus ?? 'plan');
+    setSpots(initial?.spots ?? [emptySpot()]);
+    setSearch(null);
+    setPickTarget(null);
+    setRestored(false);
+  };
 
   const updateSpot = (id: string, patch: Partial<TripSpot>) =>
     setSpots((ss) => ss.map((s) => (s.id === id ? { ...s, ...patch } : s)));
 
   const addSpot = () => {
-    const s: TripSpot = { id: uid(), name: '', memo: '', lat: null, lng: null, photoId: null };
+    const s = emptySpot();
     setSpots((ss) => {
       // 新しくできる区間（今の最後 → 新しいスポット）は、直前の区間と同じ手段を初期値にする（未設定なら未設定のまま）
       const n = ss.length;
@@ -68,7 +141,9 @@ export default function TripForm({ initial, initialStatus }: Props) {
       }
       return [...ss, s];
     });
-    setPickTarget(s.id);
+    setPickTarget(null);
+    // 追加したスポットの名前欄へ（キーボードを出す）
+    requestAnimationFrame(() => document.getElementById(`spot-name-${s.id}`)?.focus());
   };
 
   const setMove = (spotId: string, mode: TransportMode | undefined) => {
@@ -103,21 +178,34 @@ export default function TripForm({ initial, initialStatus }: Props) {
     const file = e.target.files?.[0];
     if (!file) return;
     const spot = spots.find((s) => s.id === spotId);
-    const gps = await extractGps(file);
-    const dataUrl = await fileToDataUrl(file);
+    const hadPhoto = spots.some((s) => s.photoId);
+    const [gps, shotOn, dataUrl] = await Promise.all([extractGps(file), extractDate(file), fileToDataUrl(file)]);
     const photoId = uid();
     await photoPut(photoId, dataUrl);
     setPhotos((m) => new Map(m).set(photoId, dataUrl));
     updateSpot(spotId, {
       photoId,
-      // スポットに位置が未設定なら写真のGPSを流用
+      // スポットに位置が未設定なら写真の位置を使う
       ...(gps && spot && spot.lat === null ? { lat: gps.lat, lng: gps.lng } : {}),
     });
+    // 新しい思い出で最初の写真なら、撮った日を旅行の日付にする
+    if (omoide && !hadPhoto && shotOn) setStartDate(shotOn);
   };
 
   const onMapPick = (lat: number, lng: number) => {
     if (!pickTarget) return;
     updateSpot(pickTarget, { lat, lng });
+    setPickTarget(null);
+  };
+
+  const startMapPick = (spotId: string) => {
+    if (pickTarget === spotId) {
+      setPickTarget(null);
+      return;
+    }
+    setPickTarget(spotId);
+    // スマホでは地図がフォームの下にあるので、地図まで連れて行く
+    mapRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
   const searchSpot = async (spotId: string) => {
@@ -131,10 +219,10 @@ export default function TripForm({ initial, initialStatus }: Props) {
         spotId,
         busy: false,
         hits,
-        error: hits.length === 0 ? '見つかりませんでした。地名を足してみてください（例：横浜中華街 神奈川）' : '',
+        error: hits.length === 0 ? '見つかりませんでした。地名を足してみてください（例：横浜中華街 神奈川）。' : '',
       });
     } catch {
-      setSearch({ spotId, busy: false, hits: null, error: '検索に失敗しました。少し待ってからもう一度どうぞ。' });
+      setSearch({ spotId, busy: false, hits: null, error: '探せませんでした。少し待ってからもう一度どうぞ。' });
     }
   };
 
@@ -145,22 +233,35 @@ export default function TripForm({ initial, initialStatus }: Props) {
 
   const route: RoutePoint[] = routeFromSpots(spots);
 
-  const valid = title.trim() && spots.length >= 1 && spots.every((s) => s.name.trim());
+  // 空のスポットは保存しない。名前・位置・写真のどれかがあるスポットが1つあれば保存できる
+  const filled = spots.filter((s) => !isEmptySpot(s));
+  const valid = filled.length >= 1;
 
   const submit = () => {
     if (!valid || saving) return;
     setSaving(true);
+    // 名前が空のスポットは、位置があれば「◯◯県のあたり」、無ければ番号で呼ぶ
+    const named = filled.map((s, i) => ({
+      ...s,
+      name:
+        s.name.trim() ||
+        (s.lat !== null && s.lng !== null ? `${nearestPrefecture(s.lat, s.lng).name}のあたり` : `スポット${i + 1}`),
+    }));
+    const firstTyped = filled.find((s) => s.name.trim())?.name.trim();
     const trip: Trip = {
       id: initial?.id ?? uid(),
       userId: initial?.userId ?? CURRENT_USER.id,
       userName: initial?.userName ?? CURRENT_USER.name,
-      title: title.trim(),
+      // 名前が空なら、入力したスポット名か日付から自動で付ける
+      title:
+        title.trim() ||
+        (firstTyped ? `${firstTyped}の旅` : `${startDate.replaceAll('-', '/')}の${status === 'done' ? '思い出' : '旅'}`),
       startDate,
       endDate: endDate || startDate,
       status,
       // 最後のスポットには「次への移動手段」は要らないので外して保存する
-      spots: spots.map((s, i) => {
-        if (i < spots.length - 1 || !s.moveTo) return s;
+      spots: named.map((s, i) => {
+        if (i < named.length - 1 || !s.moveTo) return s;
         const rest = { ...s };
         delete rest.moveTo;
         return rest;
@@ -168,43 +269,72 @@ export default function TripForm({ initial, initialStatus }: Props) {
       createdAt: initial?.createdAt ?? new Date().toISOString(),
     };
     saveTrip(trip);
+    clearDraft(draftKey);
     router.push(`/trips/view?id=${trip.id}`);
   };
 
   return (
     <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
       <div className="space-y-4">
+        {restored && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-tint px-3 py-1.5 text-sm text-link">
+            <span>前回の入力の続きです。</span>
+            <button type="button" onClick={startOver} className="min-h-11 px-2 font-bold underline">
+              最初からやり直す
+            </button>
+          </div>
+        )}
+
         <div className="space-y-3 rounded-xl border border-line-soft bg-surface p-4">
           <div>
-            <label className="mb-1 block text-sm font-semibold text-ink-soft">
-              旅行タイトル <span className="text-red-500">*</span>
+            <label htmlFor="trip-title" className="mb-1 block text-sm font-semibold text-ink-soft">
+              旅行の名前 <span className="font-normal text-muted">（空欄なら自動で付けます）</span>
             </label>
             <input
+              id="trip-title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="例：東京1泊2日 下町めぐり"
-              className="w-full rounded-lg border border-line-soft px-3 py-2 text-sm outline-none focus:border-blue-400"
+              enterKeyHint="next"
+              className={FIELD}
             />
           </div>
+          {/* 日付：帰る日は日帰りなら要らないので、押したときだけ出す */}
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="mb-1 block text-sm font-semibold text-ink-soft">開始日</label>
+            <div className={showEnd ? '' : 'col-span-2'}>
+              <label htmlFor="trip-start" className="mb-1 block text-sm font-semibold text-ink-soft">
+                {showEnd ? '出発日' : '日付'}
+              </label>
               <input
+                id="trip-start"
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="w-full rounded-lg border border-line-soft px-3 py-2 text-sm outline-none focus:border-blue-400"
+                className={`${FIELD} px-2`}
               />
             </div>
-            <div>
-              <label className="mb-1 block text-sm font-semibold text-ink-soft">終了日</label>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="w-full rounded-lg border border-line-soft px-3 py-2 text-sm outline-none focus:border-blue-400"
-              />
-            </div>
+            {showEnd ? (
+              <div>
+                <label htmlFor="trip-end" className="mb-1 block text-sm font-semibold text-ink-soft">
+                  帰る日
+                </label>
+                <input
+                  id="trip-end"
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className={`${FIELD} px-2`}
+                />
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowEnd(true)}
+                className="col-span-2 -mt-1 min-h-11 justify-self-start px-1 text-sm font-bold text-link underline"
+              >
+                泊まりの旅行なら：帰る日を入れる
+              </button>
+            )}
           </div>
           {/* 予定か思い出か：新規は入口で選んだ方に固定。編集では「これから行く」旅行にだけ「思い出にする」を出す */}
           <div className="flex flex-wrap items-center gap-2">
@@ -213,21 +343,21 @@ export default function TripForm({ initial, initialStatus }: Props) {
                 status === 'plan' ? 'bg-amber-500/15 text-amber-600' : 'bg-emerald-500/15 text-emerald-600'
               }`}
             >
-              {status === 'plan' ? '🗓 これから行く旅行' : '📖 行ってきた旅行（思い出）'}
+              {status === 'plan' ? 'これから行く旅行' : '行ってきた旅行（思い出）'}
             </span>
             {initial?.status === 'plan' && status === 'plan' && (
               <button
                 type="button"
                 onClick={() => setStatus('done')}
-                className="min-h-11 rounded-full bg-emerald-500 px-4 text-sm font-bold text-white shadow-md hover:bg-emerald-600"
+                className="min-h-11 rounded-full bg-emerald-600 px-4 text-sm font-bold text-white shadow-md hover:bg-emerald-700"
               >
-                旅行が終わったら → 📖 思い出にする
+                旅行が終わったら：思い出にする
               </button>
             )}
             {initial?.status === 'plan' && status === 'done' && (
-              <span className="text-xs text-muted">
+              <span className="text-sm text-muted">
                 「更新する」で思い出になります。
-                <button type="button" onClick={() => setStatus('plan')} className="ml-1 font-bold text-link underline">
+                <button type="button" onClick={() => setStatus('plan')} className="ml-1 min-h-11 font-bold text-link underline">
                   取り消す
                 </button>
               </span>
@@ -237,125 +367,187 @@ export default function TripForm({ initial, initialStatus }: Props) {
 
         {/* スポット一覧 */}
         <div className="space-y-3">
-          {spots.map((s, i) => (
-            <div key={s.id}>
-            <div
-              className={`rounded-xl border bg-surface p-3 ${
-                pickTarget === s.id ? 'border-blue-400 ring-2 ring-tint' : 'border-line-soft'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">
-                  {i + 1}
-                </span>
-                <input
-                  value={s.name}
-                  onChange={(e) => updateSpot(s.id, { name: e.target.value })}
-                  placeholder="スポット名（例：東京駅）*"
-                  className="w-full rounded-lg border border-line-soft px-3 py-1.5 text-sm outline-none focus:border-blue-400"
-                />
-                <button onClick={() => move(i, -1)} className="rounded border border-line-soft px-2 py-1 text-xs text-muted hover:bg-surface-2" title="上へ">↑</button>
-                <button onClick={() => move(i, 1)} className="rounded border border-line-soft px-2 py-1 text-xs text-muted hover:bg-surface-2" title="下へ">↓</button>
-                <button onClick={() => removeSpot(s.id)} className="rounded border border-red-200 px-2 py-1 text-xs text-red-500 hover:bg-red-500/10" title="削除">✕</button>
-              </div>
-              <textarea
-                value={s.memo}
-                onChange={(e) => updateSpot(s.id, { memo: e.target.value })}
-                rows={2}
-                placeholder="メモ（予定・感想など）"
-                className="mt-2 w-full rounded-lg border border-line-soft px-3 py-1.5 text-sm outline-none focus:border-blue-400"
-              />
-              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                <button
-                  onClick={() => searchSpot(s.id)}
-                  disabled={!s.name.trim() || (search?.busy && search.spotId === s.id)}
-                  className="rounded-full border border-blue-300 px-3 py-1 font-bold text-link hover:bg-tint disabled:cursor-not-allowed disabled:border-line-soft disabled:text-muted/50"
-                >
-                  {search?.busy && search.spotId === s.id ? '検索中…' : '🔍 名前から位置を探す'}
-                </button>
-                <label className="cursor-pointer rounded-full border border-blue-300 px-3 py-1 font-bold text-link hover:bg-tint">
-                  📷 写真を追加（位置も自動設定）
-                  <input type="file" accept="image/*" className="hidden" onChange={(e) => onSpotPhoto(s.id, e)} />
-                </label>
-                <button
-                  onClick={() => setPickTarget(pickTarget === s.id ? null : s.id)}
-                  className={`rounded-full px-3 py-1 font-bold ${
-                    pickTarget === s.id
-                      ? 'bg-blue-600 text-white'
-                      : 'border border-line-soft text-muted hover:bg-surface-2'
+          {spots.map((s, i) => {
+            const photoBtn = (
+              <label
+                className={`${CHIP} cursor-pointer ${
+                  omoide ? 'border-transparent bg-blue-600 text-white' : 'border-blue-300 text-link hover:bg-tint'
+                }`}
+              >
+                <CameraIcon className="h-5 w-5" />
+                {omoide ? '写真を選ぶ' : '写真'}
+                <input type="file" accept="image/*" className="sr-only" onChange={(e) => onSpotPhoto(s.id, e)} />
+              </label>
+            );
+            return (
+              <div key={s.id}>
+                <div
+                  className={`rounded-xl border bg-surface p-3 ${
+                    pickTarget === s.id ? 'border-blue-400 ring-2 ring-tint' : 'border-line-soft'
                   }`}
                 >
-                  {pickTarget === s.id ? '地図をクリックして位置指定中…' : '📍 地図で指定'}
-                </button>
-                <span className="text-muted">
-                  {s.lat !== null ? `位置設定済み (${s.lat!.toFixed(3)}, ${s.lng!.toFixed(3)})` : '位置未設定'}
-                </span>
-              </div>
-              {search && search.spotId === s.id && (search.hits?.length || search.error) ? (
-                <div className="mt-2 space-y-1 rounded-xl bg-tint p-2 text-xs">
-                  {search.error && <div className="text-red-500">{search.error}</div>}
-                  {search.hits?.map((h, hi) => (
+                  <div className="flex items-center gap-1.5">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">
+                      {i + 1}
+                    </span>
+                    <input
+                      id={`spot-name-${s.id}`}
+                      value={s.name}
+                      onChange={(e) => updateSpot(s.id, { name: e.target.value })}
+                      onKeyDown={(e) => {
+                        // キーボードの「検索」で、そのまま場所の候補を出す
+                        if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                          e.preventDefault();
+                          searchSpot(s.id);
+                        }
+                      }}
+                      enterKeyHint="search"
+                      aria-label={`${i + 1}番目のスポット名`}
+                      placeholder="スポット名（例：東京駅）"
+                      className={`${FIELD} min-w-0`}
+                    />
+                    {spots.length > 1 && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => move(i, -1)}
+                          disabled={i === 0}
+                          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 disabled:opacity-30"
+                          aria-label="上へ"
+                        >
+                          <ChevronUpIcon className="h-5 w-5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => move(i, 1)}
+                          disabled={i === spots.length - 1}
+                          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 disabled:opacity-30"
+                          aria-label="下へ"
+                        >
+                          <ChevronDownIcon className="h-5 w-5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeSpot(s.id)}
+                          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-red-500 hover:bg-red-500/10"
+                          aria-label="このスポットを消す"
+                        >
+                          <CloseIcon className="h-5 w-5" />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  <textarea
+                    value={s.memo}
+                    onChange={(e) => updateSpot(s.id, { memo: e.target.value })}
+                    rows={2}
+                    aria-label="メモ"
+                    placeholder="メモ（予定・感想など）"
+                    className={`${FIELD} mt-2`}
+                  />
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    {omoide && photoBtn}
                     <button
-                      key={hi}
-                      onClick={() => pickHit(s.id, h)}
-                      className="block w-full rounded-lg bg-surface px-2.5 py-1.5 text-left text-ink-soft shadow-sm hover:bg-tint"
+                      type="button"
+                      onClick={() => searchSpot(s.id)}
+                      disabled={!s.name.trim() || (search?.busy && search.spotId === s.id)}
+                      className={`${CHIP} border-blue-300 text-link hover:bg-tint disabled:border-dashed disabled:border-line-soft disabled:text-muted`}
                     >
-                      📍 {shortLabel(h.label)}
+                      <SearchIcon className="h-5 w-5" />
+                      {search?.busy && search.spotId === s.id ? '探しています…' : '名前で探す'}
                     </button>
-                  ))}
-                  <div className="text-right text-[10px] text-muted">検索: OpenStreetMap Nominatim</div>
+                    {!omoide && photoBtn}
+                    <button
+                      type="button"
+                      onClick={() => startMapPick(s.id)}
+                      className={`${CHIP} ${
+                        pickTarget === s.id
+                          ? 'border-transparent bg-blue-600 text-white'
+                          : 'border-line-soft text-muted hover:bg-surface-2'
+                      }`}
+                    >
+                      <PinIcon className="h-5 w-5" />
+                      {pickTarget === s.id ? '地図を押してください' : '地図で選ぶ'}
+                    </button>
+                    <span
+                      className={`text-sm font-bold ${s.lat !== null ? 'text-emerald-600' : 'text-muted'}`}
+                    >
+                      {s.lat !== null ? '位置OK' : '位置はまだ'}
+                    </span>
+                  </div>
+                  {search && search.spotId === s.id && (search.hits?.length || search.error) ? (
+                    <div className="mt-2 space-y-1 rounded-xl bg-tint p-2 text-sm">
+                      {search.error && <div className="text-red-500">{search.error}</div>}
+                      {search.hits?.map((h, hi) => (
+                        <button
+                          type="button"
+                          key={hi}
+                          onClick={() => pickHit(s.id, h)}
+                          className="flex min-h-11 w-full items-center gap-1.5 rounded-lg bg-surface px-2.5 py-1.5 text-left text-ink-soft shadow-sm hover:bg-tint"
+                        >
+                          <PinIcon className="h-4 w-4 shrink-0 text-link" />
+                          {shortLabel(h.label)}
+                        </button>
+                      ))}
+                      <div className="text-right text-[10px] text-muted">検索: OpenStreetMap Nominatim</div>
+                    </div>
+                  ) : null}
+                  {s.photoId && photos.get(s.photoId) && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={photos.get(s.photoId)!}
+                      alt={s.name}
+                      className="mt-2 h-28 w-full rounded-lg object-cover"
+                    />
+                  )}
                 </div>
-              ) : null}
-              {s.photoId && photos.get(s.photoId) && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={photos.get(s.photoId)!}
-                  alt={s.name}
-                  className="mt-2 h-28 w-full rounded-lg object-cover"
-                />
-              )}
-            </div>
-            {i < spots.length - 1 && (
-              <MovePicker
-                mode={s.moveTo}
-                open={moveOpen === s.id}
-                color={s.moveTo ? MODE_COLOR[theme][s.moveTo] : undefined}
-                colors={MODE_COLOR[theme]}
-                onToggle={() => setMoveOpen(moveOpen === s.id ? null : s.id)}
-                onPick={(m) => setMove(s.id, m)}
-              />
-            )}
-            </div>
-          ))}
+                {i < spots.length - 1 && (
+                  <MovePicker
+                    mode={s.moveTo}
+                    open={moveOpen === s.id}
+                    color={s.moveTo ? MODE_COLOR[theme][s.moveTo] : undefined}
+                    colors={MODE_COLOR[theme]}
+                    onToggle={() => setMoveOpen(moveOpen === s.id ? null : s.id)}
+                    onPick={(m) => setMove(s.id, m)}
+                  />
+                )}
+              </div>
+            );
+          })}
           <button
+            type="button"
             onClick={addSpot}
-            className="w-full rounded-xl border-2 border-dashed border-blue-300 bg-tint/50 py-3 text-sm font-semibold text-link hover:bg-tint"
+            className="min-h-12 w-full rounded-xl border-2 border-dashed border-blue-300 bg-tint/50 py-3 text-base font-semibold text-link hover:bg-tint"
           >
             ＋ スポットを追加
           </button>
         </div>
 
-        <div className="flex items-center gap-3">
+        {/* 保存ボタン：スマホでは画面の下に貼りつけて、いつでも押せるように */}
+        <div className="sticky bottom-0 z-10 -mx-4 border-t border-line-soft bg-bg/95 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:p-0">
           <button
+            type="button"
             onClick={submit}
             disabled={!valid || saving}
-            className="rounded-full bg-sky-500 px-6 py-2 text-sm font-bold text-white shadow-md shadow-sky-200 hover:bg-sky-600 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:shadow-none"
+            className="min-h-12 w-full rounded-full bg-sky-600 px-6 text-base font-bold text-white shadow-md hover:bg-sky-700 disabled:cursor-not-allowed disabled:border-2 disabled:border-dashed disabled:border-line-soft disabled:bg-surface disabled:text-muted disabled:shadow-none lg:w-auto"
           >
-            {saving ? '保存中…' : initial ? '更新する' : '🧳 旅行ルートを保存'}
+            {saving ? '保存しています…' : initial ? '更新する' : omoide ? '思い出を保存' : '旅行ルートを保存'}
           </button>
           {!valid && (
-            <span className="text-xs text-muted">タイトルと、各スポットの名前を入力してください</span>
+            <p className="mt-1.5 text-center text-sm text-muted lg:text-left">
+              スポットの名前か写真を1つ入れると保存できます。
+            </p>
           )}
         </div>
       </div>
 
-      <div className="space-y-2">
-        <div className="rounded-lg bg-tint px-3 py-2 text-xs text-link">
+      <div ref={mapRef} className="space-y-2">
+        <div className="rounded-lg bg-tint px-3 py-2 text-sm text-link">
           {pickTarget
-            ? '地図をクリックすると、選択中のスポットに位置が設定されます。'
-            : 'スポット名を入れて「🔍 名前から位置を探す」→候補を選ぶだけで位置が入ります。スマホ写真なら「📷 写真を追加」でGPSから自動設定。手動派は「📍 地図で指定」→地図をクリック。'}
+            ? '地図を押すと、その場所が選んだスポットの位置になります。'
+            : '位置は「名前で探す」か「写真」で入ります。写真に位置が入っていれば自動です。'}
         </div>
-        <JapanMap route={route} onPick={onMapPick} height="520px" fitButton />
+        <JapanMap route={route} onPick={onMapPick} height={MAP_HEIGHT} fitRoute="grow" fitButton />
       </div>
     </div>
   );
@@ -405,7 +597,7 @@ function MovePicker({
                 type="button"
                 onClick={() => onPick(m)}
                 aria-pressed={mode === m}
-                className={`flex min-h-[52px] min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg border-2 px-0.5 text-[10px] font-bold leading-tight ${
+                className={`flex min-h-[52px] min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg border-2 px-0.5 text-[11px] font-bold leading-tight ${
                   mode === m ? 'bg-tint' : 'border-transparent hover:bg-surface-2'
                 }`}
                 style={{ color: colors[m], ...(mode === m ? { borderColor: colors[m] } : {}) }}
@@ -419,7 +611,7 @@ function MovePicker({
             <button
               type="button"
               onClick={() => onPick(undefined)}
-              className="mt-1 min-h-11 w-full rounded-lg text-xs font-bold text-muted hover:bg-surface-2"
+              className="mt-1 min-h-11 w-full rounded-lg text-sm font-bold text-muted hover:bg-surface-2"
             >
               未設定に戻す
             </button>

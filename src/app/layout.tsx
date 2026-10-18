@@ -3,6 +3,7 @@ import { M_PLUS_Rounded_1c } from "next/font/google";
 import "./globals.css";
 import Header from "@/components/Header";
 import MainShell from "@/components/MainShell";
+import TabBar from "@/components/TabBar";
 import { DEFAULT_THEME, THEME_INIT_SCRIPT } from "@/lib/theme";
 
 // 丸ゴシックの予備（A＝ポップ）。Hiragino Maru Gothic / BIZ UDPGothic が無い環境向け。
@@ -40,8 +41,9 @@ export default function RootLayout({
         <Header />
         <MainShell>{children}</MainShell>
         <footer className="border-t border-line bg-surface py-4 text-center text-xs text-muted">
-          Travel Route Share（MVP・デモモード：データはこのブラウザ内にのみ保存されます）
+          Travel Route Share（デモ版：データはこのブラウザの中にだけ保存されます）
         </footer>
+        <TabBar />
       </body>
     </html>
   );

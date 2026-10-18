@@ -92,6 +92,7 @@ export function favoriteIds(): Set<string> {
   return new Set(readJson<string[]>(FAVS_KEY, []));
 }
 
+/** 投稿・旅行どちらの id でもよい（id は重ならない） */
 export function toggleFavorite(postId: string): boolean {
   const favs = favoriteIds();
   const nowFav = !favs.has(postId);
@@ -238,4 +239,32 @@ export async function seedIfNeeded(): Promise<void> {
     });
   }
   localStorage.setItem(SEED_KEY, '1');
+}
+
+export function isFavorite(id: string): boolean {
+  return favoriteIds().has(id);
+}
+
+// ---------- 下書き（入力の途中をこのブラウザに自動保存。保存・投稿したら消す） ----------
+
+const DRAFT_PREFIX = 'trs_draft_';
+
+export function loadDraft<T>(key: string): T | null {
+  return readJson<T | null>(DRAFT_PREFIX + key, null);
+}
+
+export function saveDraft(key: string, value: unknown) {
+  try {
+    writeJson(DRAFT_PREFIX + key, value);
+  } catch {
+    // 容量いっぱい等で保存できなくても入力は続けられるようにする
+  }
+}
+
+export function clearDraft(key: string) {
+  try {
+    localStorage.removeItem(DRAFT_PREFIX + key);
+  } catch {
+    // 読めない環境では何もしない
+  }
 }

@@ -58,7 +58,9 @@ interface Props {
   zoom?: number; // Leaflet 時代と同じ数え方（MapLibre は1段小さい値で同じ縮尺になるので中で -1 する）
   height?: string;
   onToggleFavorite?: (postId: string) => void;
-  fitRoute?: boolean; // ルート全体が収まるよう表示範囲を自動調整（閲覧ページ用）
+  // ルート全体が収まるよう表示範囲を自動調整。true＝ルートが変わるたび（閲覧ページ用）／
+  // 'grow'＝位置の入った点が増えたときだけ（作成・編集ページ用：開いたとき全体へ寄り、新しい点も画面に入る。並べ替えや微調整では動かない）
+  fitRoute?: boolean | 'grow';
   roadRoute?: boolean; // 実際の道路に沿ったルートを描く（OSRM・失敗時は直線にフォールバック）。電車・船・飛行機の区間は対象外
   fitButton?: boolean; // 「ルート全体を表示」ボタンを地図上に出す（編集ページ用）
 }
@@ -281,7 +283,7 @@ function MapView({
       locale: {
         'CooperativeGesturesHandler.WindowsHelpText': 'Ctrl キーを押しながらスクロールで拡大・縮小',
         'CooperativeGesturesHandler.MacHelpText': '⌘ キーを押しながらスクロールで拡大・縮小',
-        'CooperativeGesturesHandler.MobileHelpText': '2本の指で地図を動かせます',
+        'CooperativeGesturesHandler.MobileHelpText': '地図は2本の指で動かせます（1本の指はページのスクロール）',
         'AttributionControl.ToggleAttribution': '出典を表示',
       },
       dragRotate: false,
@@ -453,10 +455,20 @@ function MapView({
   const hasUnset = segments.some((sg) => sg.mode === 'none');
   const hasRoad = roadNote && segments.some((sg) => sg.road);
 
-  // 閲覧ページ：ルート全体が収まるように合わせる（ルートの中身が変わったときだけ）
+  // ルート全体が収まるように合わせる（route は親で中身ごとに固定済み＝中身が同じなら同じ配列）
+  const fittedCount = useRef(0);
+  const fittedOnce = useRef(false);
   useEffect(() => {
     if (!map || !fitRoute) return;
-    // route は親で中身ごとに固定済み（中身が同じなら同じ配列）
+    if (fitRoute === 'grow') {
+      const grew = route.length > fittedCount.current;
+      fittedCount.current = route.length;
+      if (!grew) return;
+      // 開いたとき（最初の1回）はすぐ、入力で点が増えたときは動きで見せる
+      fitToRoute(map, route, fittedOnce.current);
+      fittedOnce.current = true;
+      return;
+    }
     fitToRoute(map, route, false);
   }, [map, fitRoute, route]);
 
@@ -534,12 +546,12 @@ function MapView({
           {fitButton && route.length > 0 && (
             <button
               type="button"
-              className="trs-ctrl-btn"
-              aria-label="ルート全体を表示"
+              className="trs-ctrl-btn trs-ctrl-btn-wide"
               title="ルート全体を表示"
               onClick={() => map && fitToRoute(map, route, true)}
             >
               <FitIcon />
+              <span>全体</span>
             </button>
           )}
         </>,

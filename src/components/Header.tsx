@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import ThemeSwitch from '@/components/ThemeSwitch';
+import { CameraIcon, LogoIcon, RouteIcon } from '@/components/icons';
 
 export default function Header() {
   const pathname = usePathname();
@@ -29,28 +30,31 @@ export default function Header() {
         isHome ? 'fixed left-0 right-0' : 'sticky'
       } ${hidden ? '-translate-y-full' : 'translate-y-0'}`}
     >
-      <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-4 py-3">
-        <Link href="/" className="flex min-w-0 items-center gap-2">
-          <span className="text-2xl">🗾</span>
-          <span className="truncate text-base font-extrabold tracking-tight text-ink sm:text-lg">
+      <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-4 py-2">
+        <Link href="/" className="flex min-h-11 min-w-0 items-center gap-2">
+          <LogoIcon className="h-6 w-6 shrink-0 text-primary" />
+          <span className="whitespace-nowrap text-base font-extrabold tracking-tight text-ink sm:text-lg">
             Travel Route Share
           </span>
           <span className="ml-2 hidden rounded-full bg-[var(--switch-bg)] px-2.5 py-0.5 text-xs font-bold text-muted lg:inline">
-            旅行全体を共有するSNS（MVP・デモモード）
+            旅行全体を共有するSNS（デモ）
           </span>
         </Link>
-        <nav className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+        <nav className="flex shrink-0 items-center gap-2">
+          {/* スマホでは下部のタブに任せる（ロゴが切れないように） */}
           <Link
             href="/posts/new"
-            className="rounded-full border-2 border-[var(--line)] px-2.5 py-1.5 text-xs font-bold text-ink transition hover:opacity-80 sm:px-4 sm:text-sm"
+            className="hidden min-h-11 items-center gap-1.5 rounded-full border-2 border-[var(--line)] px-4 text-sm font-bold text-ink transition hover:opacity-80 sm:inline-flex"
           >
-            📷 <span className="hidden sm:inline">写真を</span>投稿
+            <CameraIcon className="h-5 w-5" />
+            写真を投稿
           </Link>
           <Link
             href="/trips/new"
-            className="rounded-full bg-primary px-2.5 py-1.5 text-xs font-bold text-on-primary transition hover:opacity-90 sm:px-4 sm:text-sm"
+            className="hidden min-h-11 items-center gap-1.5 rounded-full bg-primary px-4 text-sm font-bold text-on-primary transition hover:opacity-90 sm:inline-flex"
           >
-            🧭 <span className="hidden sm:inline">旅行</span>ルート作成
+            <RouteIcon className="h-5 w-5" />
+            ルートを作る
           </Link>
           <ThemeSwitch compact />
         </nav>

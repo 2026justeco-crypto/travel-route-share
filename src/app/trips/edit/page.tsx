@@ -1,22 +1,17 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import type { Trip } from '@/lib/types';
 import { getTrip } from '@/lib/store';
 import TripForm from '@/components/TripForm';
+import { PageSkeleton } from '@/components/Skeleton';
+import { useMounted } from '@/lib/useMounted';
 
-function EditTrip() {
-  const searchParams = useSearchParams();
-  const id = searchParams.get('id') ?? '';
-  const [trip, setTrip] = useState<Trip | null | undefined>(undefined);
+function EditTrip({ id }: { id: string }) {
+  // ブラウザで描画するときだけ呼ばれる（親で useMounted を待つ）ので、ここで直接読む
+  const [trip] = useState(() => getTrip(id) ?? null);
 
-  useEffect(() => {
-    setTrip(getTrip(id) ?? null);
-  }, [id]);
-
-  if (trip === undefined) return <div className="text-sm text-muted">読み込み中…</div>;
   if (trip === null)
     return (
       <div className="text-sm text-muted">
@@ -25,11 +20,11 @@ function EditTrip() {
     );
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <h1 className="text-xl font-bold">旅行ルートを編集</h1>
       <p className="text-sm text-muted">
         {trip.status === 'plan'
-          ? '旅行が終わったら、各スポットに実際の写真を追加して「思い出にする」を押しましょう。旅の記録がそのまま思い出ページになります。'
+          ? '旅行が終わったら写真を足して「思い出にする」を押してください。'
           : '写真やメモ、移動手段を足して、思い出を仕上げましょう。'}
       </p>
       <TripForm initial={trip} />
@@ -37,10 +32,17 @@ function EditTrip() {
   );
 }
 
+function EditTripGate() {
+  const id = useSearchParams().get('id') ?? '';
+  const mounted = useMounted();
+  if (!mounted) return <PageSkeleton />;
+  return <EditTrip key={id} id={id} />;
+}
+
 export default function EditTripPage() {
   return (
-    <Suspense fallback={<div className="text-sm text-muted">読み込み中…</div>}>
-      <EditTrip />
+    <Suspense fallback={<PageSkeleton />}>
+      <EditTripGate />
     </Suspense>
   );
 }

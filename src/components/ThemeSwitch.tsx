@@ -20,7 +20,8 @@ export default function ThemeSwitch({
       onClick={() => applyTheme(t)}
       aria-pressed={theme === t}
       aria-label={`${letter} ${label}`}
-      className={`rounded-full px-2 py-1 transition ${
+      // 見た目は小さいまま、押せる範囲だけ上下に広げる（44px）
+      className={`relative rounded-full px-2 py-1 transition before:absolute before:-inset-x-0.5 before:-inset-y-3 before:content-[''] ${
         theme === t
           ? 'bg-[var(--switch-on-bg)] text-[var(--switch-on-text)]'
           : 'opacity-70 hover:opacity-100'

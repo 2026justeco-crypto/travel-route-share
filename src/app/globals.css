@@ -251,8 +251,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 42px;
-  height: 42px;
+  width: 44px;
+  height: 44px;
   border-radius: 9999px;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
@@ -277,6 +277,16 @@ body {
 }
 [data-theme="b"] .trs-ctrl-btn:hover {
   background: rgba(40, 52, 84, 0.9);
+}
+.trs-ctrl {
+  align-items: flex-end;
+}
+/* 「全体」：アイコンだけだと気づきにくいので文字も添える */
+.trs-ctrl-btn-wide {
+  width: auto;
+  gap: 4px;
+  padding: 0 12px 0 10px;
+  font: 800 14px/1 var(--font);
 }
 .trs-ctrl-btn:focus-visible {
   outline: 3px solid var(--accent);
@@ -347,6 +357,16 @@ body {
     transform: scale(1.8);
     opacity: 0;
   }
+}
+/* 見た目は小さいままで、押せる範囲だけ44px以上に広げる */
+/* （マーカーは maplibre が position:absolute にするので、::before はその中に広がる） */
+.trs-pin-a::before,
+.trs-pin-b::before,
+.trs-num::before {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  border-radius: 9999px;
 }
 /* ルートの番号ピン */
 .trs-num {
@@ -552,4 +572,26 @@ body {
 }
 .trs-legend-row + .trs-legend-note {
   margin-top: 2px;
+}
+
+/* =========================================================
+   読み込み中の骨組み・下部タブ（依頼4）
+   ========================================================= */
+.trs-skeleton {
+  background: linear-gradient(90deg, var(--line-soft) 0%, var(--surface-2) 50%, var(--line-soft) 100%);
+  background-size: 200% 100%;
+  animation: trs-shimmer 1.3s ease-in-out infinite;
+}
+@keyframes trs-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .trs-skeleton {
+    animation: none;
+  }
 }

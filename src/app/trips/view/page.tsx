@@ -5,36 +5,37 @@ import dynamic from 'next/dynamic';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import type { Trip } from '@/lib/types';
-import { getTrip, saveTrip, deleteTrip, CURRENT_USER } from '@/lib/store';
+import { getTrip, saveTrip, deleteTrip, isFavorite, toggleFavorite, CURRENT_USER } from '@/lib/store';
 import { photoGetMany } from '@/lib/idb';
 import type { RoutePoint } from '@/components/JapanMap';
-import { ModeIcon } from '@/components/icons';
+import { ModeIcon, StarIcon } from '@/components/icons';
+import { PageSkeleton } from '@/components/Skeleton';
 import { MODE_COLOR, TRANSPORT_LABEL, routeFromSpots } from '@/lib/transport';
 import { useTheme } from '@/lib/useTheme';
+import { useMounted } from '@/lib/useMounted';
+
+// スマホでは地図を先に・画面の半分ほどで出す（ルートをすぐ確かめられるように）
+const MAP_HEIGHT = 'min(52vh, 560px)';
 
 const JapanMap = dynamic(() => import('@/components/JapanMap'), {
   ssr: false,
-  loading: () => <div className="trs-map trs-map-loading h-[560px]" />,
+  loading: () => <div className="trs-map trs-map-loading" style={{ height: MAP_HEIGHT }} />,
 });
 
-function TripDetail() {
-  const searchParams = useSearchParams();
-  const id = searchParams.get('id') ?? '';
+function TripDetail({ id }: { id: string }) {
   const router = useRouter();
-  const [trip, setTrip] = useState<Trip | null | undefined>(undefined);
+  // ブラウザで描画するときだけ呼ばれる（親で useMounted を待つ）ので、ここで直接読む
+  const [trip, setTrip] = useState<Trip | null>(() => getTrip(id) ?? null);
+  const [fav, setFav] = useState(() => isFavorite(id));
   const [photos, setPhotos] = useState<Map<string, string>>(new Map());
   const theme = useTheme();
 
+  const photoKey = (trip?.spots ?? []).map((s) => s.photoId ?? '').join(',');
   useEffect(() => {
-    const t = getTrip(id) ?? null;
-    setTrip(t);
-    if (t) {
-      const ids = t.spots.map((s) => s.photoId).filter((x): x is string => !!x);
-      photoGetMany(ids).then(setPhotos);
-    }
-  }, [id]);
+    const ids = photoKey.split(',').filter(Boolean);
+    if (ids.length) photoGetMany(ids).then(setPhotos);
+  }, [photoKey]);
 
-  if (trip === undefined) return <div className="text-sm text-muted">読み込み中…</div>;
   if (trip === null)
     return (
       <div className="text-sm text-muted">
@@ -66,17 +67,19 @@ function TripDetail() {
     router.push('/');
   };
 
+  const onFav = () => setFav(toggleFavorite(trip.id));
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <div className="flex items-center gap-2">
             <span
               className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                trip.status === 'plan' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'
+                trip.status === 'plan' ? 'bg-amber-500/15 text-amber-600' : 'bg-emerald-500/15 text-emerald-600'
               }`}
             >
-              {trip.status === 'plan' ? '🗓 これから行く' : '📖 思い出'}
+              {trip.status === 'plan' ? 'これから行く' : '思い出'}
             </span>
             <span className="text-sm text-muted">
               {trip.startDate}
@@ -84,37 +87,70 @@ function TripDetail() {
             </span>
           </div>
           <h1 className="mt-1 text-2xl font-bold">{trip.title}</h1>
-          <div className="mt-1 text-sm text-muted">作成：{trip.userName}</div>
+          <div className="mt-1 text-sm text-muted">作った人：{trip.userName}</div>
         </div>
-        {isMine && (
-          <div className="flex items-center gap-2">
-            {trip.status === 'plan' && (
-              <button
-                onClick={markDone}
-                className="rounded-full bg-emerald-500 px-4 py-1.5 text-sm font-bold text-white shadow-md shadow-emerald-200 hover:bg-emerald-600"
-              >
-                📖 行ってきた！思い出にする
-              </button>
-            )}
-            <Link
-              href={`/trips/edit?id=${trip.id}`}
-              className="rounded-lg border border-blue-600 px-3 py-1.5 text-sm font-semibold text-link hover:bg-tint"
-            >
-              編集
-            </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={onFav}
+            aria-pressed={fav}
+            className={`inline-flex min-h-11 items-center gap-1.5 rounded-full border-2 px-4 text-sm font-bold ${
+              fav ? 'border-amber-400 bg-amber-400/15 text-amber-600' : 'border-line-soft text-ink-soft hover:bg-surface-2'
+            }`}
+          >
+            <StarIcon filled={fav} className={`h-5 w-5 ${fav ? 'text-amber-500' : ''}`} />
+            {fav ? 'お気に入り済み' : 'お気に入り'}
+          </button>
+          {isMine && trip.status === 'plan' && (
             <button
-              onClick={remove}
-              className="rounded-lg border border-red-300 px-3 py-1.5 text-sm font-semibold text-red-500 hover:bg-red-500/10"
+              type="button"
+              onClick={markDone}
+              className="min-h-11 rounded-full bg-emerald-600 px-4 text-sm font-bold text-white shadow-md hover:bg-emerald-700"
             >
-              削除
+              行ってきた：思い出にする
             </button>
-          </div>
-        )}
+          )}
+          {isMine && (
+            <>
+              <Link
+                href={`/trips/edit?id=${trip.id}`}
+                className="inline-flex min-h-11 items-center rounded-full border-2 border-blue-600 px-4 text-sm font-bold text-link hover:bg-tint"
+              >
+                編集
+              </Link>
+              <button
+                type="button"
+                onClick={remove}
+                className="min-h-11 rounded-full border-2 border-red-300 px-4 text-sm font-bold text-red-500 hover:bg-red-500/10"
+              >
+                削除
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
+        {/* 地図（スマホでは先に・PCでは右） */}
+        <div className="order-first lg:order-none lg:col-span-3 lg:col-start-3 lg:row-start-1">
+          <JapanMap
+            route={route}
+            center={center}
+            zoom={route.length ? 11 : 5}
+            height={MAP_HEIGHT}
+            fitRoute
+            roadRoute
+            fitButton
+          />
+          {route.length < trip.spots.length && (
+            <p className="mt-1.5 text-sm text-muted">
+              位置が入っていないスポットは地図に出ません（「編集」で入れられます）。
+            </p>
+          )}
+        </div>
+
         {/* ルート（左） */}
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-2 lg:col-start-1 lg:row-start-1">
           <ol className="space-y-0">
             {trip.spots.map((s, i) => {
               const photo = s.photoId ? photos.get(s.photoId) : null;
@@ -127,7 +163,7 @@ function TripDetail() {
                       </span>
                       <span className="font-bold">{s.name}</span>
                       {s.lat === null && (
-                        <span className="rounded bg-surface-2 px-1.5 py-0.5 text-xs text-muted">位置未設定</span>
+                        <span className="rounded bg-surface-2 px-1.5 py-0.5 text-xs text-muted">位置なし</span>
                       )}
                     </div>
                     {photo && (
@@ -154,25 +190,22 @@ function TripDetail() {
             })}
           </ol>
         </div>
-
-        {/* 地図（右） */}
-        <div className="lg:col-span-3">
-          <JapanMap route={route} center={center} zoom={route.length ? 11 : 5} height="560px" fitRoute roadRoute fitButton />
-          {route.length < trip.spots.length && (
-            <p className="mt-1.5 text-xs text-muted">
-              位置未設定のスポットは地図に表示されません（編集画面で設定できます）。
-            </p>
-          )}
-        </div>
       </div>
     </div>
   );
 }
 
+function TripDetailGate() {
+  const id = useSearchParams().get('id') ?? '';
+  const mounted = useMounted();
+  if (!mounted) return <PageSkeleton />;
+  return <TripDetail key={id} id={id} />;
+}
+
 export default function TripDetailPage() {
   return (
-    <Suspense fallback={<div className="text-sm text-muted">読み込み中…</div>}>
-      <TripDetail />
+    <Suspense fallback={<PageSkeleton />}>
+      <TripDetailGate />
     </Suspense>
   );
 }
